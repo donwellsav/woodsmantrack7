@@ -1,0 +1,268 @@
+{
+  "title": "Woodsman: Track Seven",
+  "chapters": [
+    {
+      "id": "intro",
+      "title": "Introduction",
+      "audio": "01_Introduction.mp3",
+      "duration": 2.69,
+      "type": "front-matter"
+    },
+    {
+      "id": "ch002",
+      "title": "The Door",
+      "epub_href": "text/ch002.xhtml",
+      "audio": "02_The Door.mp3",
+      "duration": 950.69,
+      "type": "full"
+    },
+    {
+      "id": "ch003",
+      "title": "The Park",
+      "epub_href": "text/ch003.xhtml",
+      "audio": "03_The Park.mp3",
+      "duration": 2.62,
+      "type": "title-only"
+    },
+    {
+      "id": "ch004",
+      "title": "August in Harmony Park",
+      "epub_href": "text/ch004.xhtml",
+      "audio": "04_August in Harmony Park.mp3",
+      "duration": 1200.29,
+      "type": "full"
+    },
+    {
+      "id": "ch005",
+      "title": "The Twenty",
+      "epub_href": "text/ch005.xhtml",
+      "audio": "05_The Twenty.mp3",
+      "duration": 1187.83,
+      "type": "full"
+    },
+    {
+      "id": "ch006",
+      "title": "Pike's Clock",
+      "epub_href": "text/ch006.xhtml",
+      "audio": "06_Pike's Clock.mp3",
+      "duration": 1450.97,
+      "type": "full"
+    },
+    {
+      "id": "ch007",
+      "title": "The Theft",
+      "epub_href": "text/ch007.xhtml",
+      "audio": "07_The Theft.mp3",
+      "duration": 1023.97,
+      "type": "full"
+    },
+    {
+      "id": "ch008",
+      "title": "Mercury's Test",
+      "epub_href": "text/ch008.xhtml",
+      "audio": "08_Mercury's Test.mp3",
+      "duration": 2272.45,
+      "type": "full"
+    },
+    {
+      "id": "ch009",
+      "title": "The God",
+      "epub_href": "text/ch009.xhtml",
+      "audio": "09_The God.mp3",
+      "duration": 2.48,
+      "type": "title-only"
+    },
+    {
+      "id": "ch010",
+      "title": "Eggs and Goldenrod",
+      "epub_href": "text/ch010.xhtml",
+      "audio": "10_Eggs and Goldenrod.mp3",
+      "duration": 1110.05,
+      "type": "full"
+    },
+    {
+      "id": "ch011",
+      "title": "Pawn Value",
+      "epub_href": "text/ch011.xhtml",
+      "audio": "11_Pawn Value.mp3",
+      "duration": 1295.93,
+      "type": "full"
+    },
+    {
+      "id": "ch012",
+      "title": "Clarence's Shelf",
+      "epub_href": "text/ch012.xhtml",
+      "audio": "12_Clarence's Shelf.mp3",
+      "duration": 1552.42,
+      "type": "full"
+    },
+    {
+      "id": "ch013",
+      "title": "The Room in Daylight",
+      "epub_href": "text/ch013.xhtml",
+      "audio": "13_The Room in Daylight.mp3",
+      "duration": 1404.41,
+      "type": "full"
+    },
+    {
+      "id": "ch014",
+      "title": "First Thursday",
+      "epub_href": "text/ch014.xhtml",
+      "audio": "14_First Thursday.mp3",
+      "duration": 1517.31,
+      "type": "full"
+    },
+    {
+      "id": "ch015",
+      "title": "Second Thursday",
+      "epub_href": "text/ch015.xhtml",
+      "audio": "15_Second Thursday.mp3",
+      "duration": 1441.44,
+      "type": "full"
+    },
+    {
+      "id": "ch016",
+      "title": "The Room",
+      "epub_href": "text/ch016.xhtml",
+      "audio": "16_The Room.mp3",
+      "duration": 2.62,
+      "type": "title-only"
+    },
+    {
+      "id": "ch017",
+      "title": "Cass",
+      "epub_href": "text/ch017.xhtml",
+      "audio": "17_Cass.mp3",
+      "duration": 1610.65,
+      "type": "full"
+    },
+    {
+      "id": "ch018",
+      "title": "Hallway Truth",
+      "epub_href": "text/ch018.xhtml",
+      "audio": "18_Hallway Truth.mp3",
+      "duration": 1597.09,
+      "type": "full"
+    },
+    {
+      "id": "ch019",
+      "title": "Veritas at the Cart",
+      "epub_href": "text/ch019.xhtml",
+      "audio": "19_Veritas at the Cart.mp3",
+      "duration": 1580.12,
+      "type": "full"
+    },
+    {
+      "id": "ch020",
+      "title": "Buy-In",
+      "epub_href": "text/ch020.xhtml",
+      "audio": "20_Buy-In.mp3",
+      "duration": 1184.67,
+      "type": "full"
+    },
+    {
+      "id": "ch021",
+      "title": "Moreland",
+      "epub_href": "text/ch021.xhtml",
+      "audio": "21_Moreland.mp3",
+      "duration": 1392.89,
+      "type": "full"
+    },
+    {
+      "id": "ch022",
+      "title": "Third Thursday",
+      "epub_href": "text/ch022.xhtml",
+      "audio": "22_Third Thursday.mp3",
+      "duration": 1256.27,
+      "type": "full"
+    },
+    {
+      "id": "ch023",
+      "title": "The Arrangement",
+      "epub_href": "text/ch023.xhtml",
+      "audio": "23_The Arrangement.mp3",
+      "duration": 1424.19,
+      "type": "full"
+    },
+    {
+      "id": "ch024",
+      "title": "The Bones",
+      "epub_href": "text/ch024.xhtml",
+      "audio": "24_The Bones.mp3",
+      "duration": 2.44,
+      "type": "title-only"
+    },
+    {
+      "id": "ch025",
+      "title": "Track Seven",
+      "epub_href": "text/ch025.xhtml",
+      "audio": "25_Track Seven.mp3",
+      "duration": 1566.03,
+      "type": "full"
+    },
+    {
+      "id": "ch026",
+      "title": "4:52 A.M.",
+      "epub_href": "text/ch026.xhtml",
+      "audio": "26_4:52 A.M..mp3",
+      "duration": 1508.99,
+      "type": "full"
+    },
+    {
+      "id": "ch027",
+      "title": "The Gold Guitar",
+      "epub_href": "text/ch027.xhtml",
+      "audio": "27_The Gold Guitar.mp3",
+      "duration": 563.35,
+      "type": "full"
+    },
+    {
+      "id": "ch028",
+      "title": "The Showcase",
+      "epub_href": "text/ch028.xhtml",
+      "audio": "28_The Showcase.mp3",
+      "duration": 2.9,
+      "type": "title-only"
+    },
+    {
+      "id": "ch029",
+      "title": "Wings",
+      "epub_href": "text/ch029.xhtml",
+      "audio": "29_Wings.mp3",
+      "duration": 1289.02,
+      "type": "full"
+    },
+    {
+      "id": "ch030",
+      "title": "Showcase Night",
+      "epub_href": "text/ch030.xhtml",
+      "audio": "30_Showcase Night.mp3",
+      "duration": 1163.28,
+      "type": "full"
+    },
+    {
+      "id": "ch031",
+      "title": "After the Room",
+      "epub_href": "text/ch031.xhtml",
+      "audio": "31_After the Room.mp3",
+      "duration": 1378.67,
+      "type": "full"
+    },
+    {
+      "id": "ch032",
+      "title": "Streetlight",
+      "epub_href": "text/ch032.xhtml",
+      "audio": "32_Streetlight.mp3",
+      "duration": 1205.18,
+      "type": "full"
+    },
+    {
+      "id": "ch033",
+      "title": "Harmony Park Again",
+      "epub_href": "text/ch033.xhtml",
+      "audio": "33_Harmony Park Again.mp3",
+      "duration": 857.26,
+      "type": "full"
+    }
+  ]
+}
