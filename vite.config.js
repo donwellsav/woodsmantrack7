@@ -48,7 +48,13 @@ export default defineConfig({
     react(),
     serveAudio(),
     VitePWA({
-      registerType: 'autoUpdate',
+      // PERF-7: prompt instead of autoUpdate. Audiobook users leave the tab
+      // open for hours; autoUpdate + skipWaiting + clientsClaim would silently
+      // take over mid-session and break in-memory refs (timingsCache,
+      // textMapRef, cfiMapRef). With `prompt`, the new SW waits for the user
+      // to acknowledge a "new version available" toast before activating —
+      // they can pick a natural break (chapter end) to reload.
+      registerType: 'prompt',
       includeAssets: ['book.epub', 'chapters.json'],
       manifest: {
         name: 'Woodsman: Track Seven',
@@ -64,21 +70,25 @@ export default defineConfig({
           { src: '/icons/icon-512.png', sizes: '512x512', type: 'image/png', purpose: 'maskable' },
         ],
       },
-      // Audio is large and lives outside the project; cache it lazily at runtime.
+      // Audio + EPUB caching.
+      //
+      // PERF-3: Workbox's CacheFirst handler does NOT slice Range requests out
+      // of a cached 200 OK response — it returns the whole body. For audio
+      // (where browsers issue Range to seek), that means seeking near the end
+      // of an unplayed chapter forces a full ~30 MB download before the seek
+      // resolves. To keep HTTP Range + byte serving working in production, we
+      // EXCLUDE /audio/* from service-worker caching and rely on the browser's
+      // native HTTP cache + the CDN's Range support. Audio still works
+      // offline IF the chapter has been played end-to-end (HTTP cache), but
+      // seeking beyond the cached range will hit the network.
+      //
+      // PERF-16: the previous runtimeCaching rule for *.epub was dead code —
+      // book.epub is already in `includeAssets` above and therefore precached.
       workbox: {
         maximumFileSizeToCacheInBytes: 8 * 1024 * 1024,
-        runtimeCaching: [
-          {
-            urlPattern: ({ url }) => url.pathname.startsWith('/audio/'),
-            handler: 'CacheFirst',
-            options: { cacheName: 'audio-cache', expiration: { maxEntries: 100 } },
-          },
-          {
-            urlPattern: ({ url }) => url.pathname.endsWith('.epub'),
-            handler: 'CacheFirst',
-            options: { cacheName: 'book-cache' },
-          },
-        ],
+        // No runtimeCaching — audio is served via native HTTP cache + Range,
+        // EPUB is precached. Adjust here if you want a more aggressive audio
+        // cache (e.g. workbox-range-requests plugin) at the cost of seek bugs.
       },
     }),
   ],
