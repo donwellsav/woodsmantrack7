@@ -198,6 +198,11 @@ export default function App() {
   const [currentTime, setCurrentTime] = useState(0)
   const [duration, setDuration] = useState(0)
   const [loading, setLoading] = useState(true)
+  // PERF-7: SW update prompt state. The new SW waits to activate until the
+  // user accepts this toast — preserves in-memory refs (timingsCache,
+  // textMapRef, cfiMapRef) across deploys during a long listening session.
+  const [updateAvailable, setUpdateAvailable] = useState(false)
+  const swUpdateRef = useRef(null)
   const [sidebarOpen, setSidebarOpen] = useState(true)
   const [syncAvailable, setSyncAvailable] = useState(false)
   const [timings, setTimings] = useState(null)
@@ -220,6 +225,12 @@ export default function App() {
   const lastWordIdxRef = useRef(-1)
   const pendingSeekRef = useRef(0)         // audio seek target to restore on chapter load
   const lastSaveRef = useRef(0)            // throttle timestamp for progress saves
+  const rafIdxRef = useRef(-1)            // PERF-5: pending rAF word index (-1 = no scheduled frame)
+  const rafHandleRef = useRef(0)          // PERF-5: handle of the in-flight rAF so we can cancel on unmount
+  const lastScrollRef = useRef(0)         // PERF-5: throttle timestamp for scrollIntoView
+  const cssDebounceRef = useRef(0)        // PERF-6: debounce timer handle for applyReaderCss
+  const isScrubbingRef = useRef(false)    // PERF-9: true while the user is dragging the seek slider
+  const epubPromiseRef = useRef(null)     // PERF-10: preloaded EPUB Blob promise (parallel with manifest fetch)
 
   useEffect(() => { timingsRef.current = timings }, [timings])
   useEffect(() => {
@@ -243,12 +254,19 @@ export default function App() {
   }, [prefs])
 
   function applyReaderCss() {
-    const view = viewRef.current
-    if (view?.renderer?.setStyles) {
-      try { view.renderer.setStyles(readerCss(themeRef.current, prefsRef.current)) } catch {}
-    }
-    // re-pin single-column on the next frame (setStyles re-applies the epub CSS)
-    requestAnimationFrame(() => { try { enforceSingleColumn() } catch {} })
+    // PERF-6: debounce so rapid +/- clicks (size, lineHeight) coalesce into a
+    // single iframe repaint. Without this, holding "+" produces a stream of
+    // setStyles + enforceSingleColumn calls that visibly stutter on mobile.
+    if (cssDebounceRef.current) clearTimeout(cssDebounceRef.current)
+    cssDebounceRef.current = setTimeout(() => {
+      cssDebounceRef.current = 0
+      const view = viewRef.current
+      if (view?.renderer?.setStyles) {
+        try { view.renderer.setStyles(readerCss(themeRef.current, prefsRef.current)) } catch {}
+      }
+      // re-pin single-column on the next frame (setStyles re-applies the epub CSS)
+      requestAnimationFrame(() => { try { enforceSingleColumn() } catch {} })
+    }, 100)
   }
 
   // ---- reading-progress persistence ----
@@ -284,6 +302,11 @@ export default function App() {
 
   // ---- load manifest ----
   useEffect(() => {
+    // PERF-10: kick off the EPUB fetch in parallel with the manifest. The
+    // previous code only fetched /book.epub inside openFoliateView (after
+    // React commits + foliate finishes loading), serializing ~260KB behind
+    // the chapter list paint. Preloading here lets both round-trips overlap.
+    epubPromiseRef.current = fetch(EPUB_URL).then(r => r.blob()).catch(() => null)
     fetch(MANIFEST_URL).then(r => r.json()).then(m => {
       setManifest(m)
       setLoading(false)
@@ -418,8 +441,13 @@ export default function App() {
   // ---- open foliate-view (callback ref so it runs after the element is attached) ----
   async function openFoliateView(view) {
     try {
-      const res = await fetch(EPUB_URL)
-      const blob = await res.blob()
+      // PERF-10: consume the preloaded EPUB blob (kicked off alongside the
+      // manifest fetch). Falls back to a fresh fetch if the preload failed.
+      let blob = epubPromiseRef.current ? await epubPromiseRef.current : null
+      if (!blob) {
+        const res = await fetch(EPUB_URL)
+        blob = await res.blob()
+      }
       const file = new File([blob], 'book.epub', { type: blob.type || 'application/epub+zip' })
       await view.open(file)
       // continuous (scrolled) flow: one smooth native-scroll document per chapter
@@ -541,9 +569,22 @@ export default function App() {
       const mid = (lo + hi) >> 1
       if (t.words[mid].start <= now) { idx = mid; lo = mid + 1 } else { hi = mid - 1 }
     }
+    // PERF-5: coalesce multiple timeupdates into a single rAF — at most one DOM
+    // mutation per animation frame. Browsers fire timeupdate ~4×/sec, so without
+    // this we'd get up to 4 highlightWord + scrollIntoView calls per second on
+    // the same word. If a frame is already scheduled, just bump its target idx.
     if (idx === lastWordIdxRef.current) return
-    lastWordIdxRef.current = idx
-    highlightWord(idx)
+    rafIdxRef.current = idx
+    if (rafHandleRef.current) return
+    rafHandleRef.current = requestAnimationFrame(() => {
+      rafHandleRef.current = 0
+      const target = rafIdxRef.current
+      rafIdxRef.current = -1
+      if (target !== lastWordIdxRef.current) {
+        lastWordIdxRef.current = target
+        highlightWord(target)
+      }
+    })
   }
   const onLoadedMeta = () => setDuration(audioRef.current?.duration || 0)
   const onEnded = () => {
@@ -559,10 +600,15 @@ export default function App() {
     if (currentMarkRef.current) {
       try {
         const m = currentMarkRef.current
+        // PERF-5 / CQ-9: null-check parentNode — if the previous mark was
+        // detached by a section reload or a surrounding mutation, the unwrap
+        // would throw and currentMarkRef would point at a dead node forever.
         const parent = m.parentNode
-        while (m.firstChild) parent.insertBefore(m.firstChild, m)
-        parent.removeChild(m)
-        parent.normalize()
+        if (parent) {
+          while (m.firstChild) parent.insertBefore(m.firstChild, m)
+          parent.removeChild(m)
+          parent.normalize()
+        }
       } catch {}
       currentMarkRef.current = null
     }
@@ -580,7 +626,15 @@ export default function App() {
       mark.className = 'word-hl'
       range.surroundContents(mark)
       currentMarkRef.current = mark
-      mark.scrollIntoView({ block: 'center', behavior: 'smooth' })
+      // PERF-5: throttle scrollIntoView to once per ~600ms so a long chapter
+      // doesn't keep restarting a smooth-scroll every word boundary.
+      // Respect prefers-reduced-motion (also closes A11Y-02).
+      const now = performance.now()
+      if (now - lastScrollRef.current > 600) {
+        lastScrollRef.current = now
+        const reduced = window.matchMedia?.('(prefers-reduced-motion: reduce)').matches
+        mark.scrollIntoView({ block: 'center', behavior: reduced ? 'auto' : 'smooth' })
+      }
     } catch {}
   }
 
@@ -607,6 +661,30 @@ export default function App() {
     navigator.mediaSession.setActionHandler('previoustrack', prev)
     navigator.mediaSession.setActionHandler('nexttrack', next)
   }, [chapter])
+
+  // ---- PERF-7: PWA update prompt ----
+  useEffect(() => {
+    // vite-plugin-pwa's virtual module exposes the SW registration. We import
+    // it dynamically so the dev server (where the module returns a stub) does
+    // not blow up if vite-plugin-pwa is disabled.
+    let off
+    import('virtual:pwa-register').then(({ registerSW }) => {
+      off = registerSW({
+        onNeedRefresh() { setUpdateAvailable(true) },
+        onOfflineReady() { /* silent — offline readiness is the default expectation */ },
+        onRegisteredSW(url, reg) {
+          // Stash the update function so the toast's "Reload" button can
+          // trigger it. registerSW returns this via the second arg only in
+          // newer versions; the safest path is to capture from the SW reg.
+          swUpdateRef.current = () => {
+            if (reg && reg.waiting) reg.waiting.postMessage({ type: 'SKIP_WAITING' })
+            window.location.reload()
+          }
+        },
+      })
+    }).catch(() => { /* virtual module not available in this build; no-op */ })
+    return () => { try { off && off() } catch {} }
+  }, [])
 
   if (loading) return <div className="loading">Loading…</div>
 
@@ -673,12 +751,27 @@ export default function App() {
         <input
           className="seek"
           type="range" min={0} max={duration || 0} value={currentTime}
-          onChange={(e) => {
-            const t = parseFloat(e.target.value)
-            if (audioRef.current) audioRef.current.currentTime = t
-            setCurrentTime(t)
+          onPointerDown={() => { isScrubbingRef.current = true }}
+          onPointerUp={() => {
+            // PERF-9: only commit the actual audio.currentTime at pointer-up so
+            // dragging the slider doesn't queue dozens of seeks (each can force
+            // a re-download of bytes from the SW cache).
+            isScrubbingRef.current = false
+            if (audioRef.current) audioRef.current.currentTime = currentTime
             lastWordIdxRef.current = -1
             onTimeUpdate()
+          }}
+          onChange={(e) => {
+            const t = parseFloat(e.target.value)
+            // While dragging, just update state for the slider thumb; the audio
+            // seek happens on pointer-up above. Outside a drag (keyboard),
+            // commit immediately.
+            setCurrentTime(t)
+            if (!isScrubbingRef.current && audioRef.current) {
+              audioRef.current.currentTime = t
+              lastWordIdxRef.current = -1
+              onTimeUpdate()
+            }
           }}
         />
       </footer>
@@ -691,6 +784,21 @@ export default function App() {
         onPlay={() => setIsPlaying(true)}
         onPause={() => setIsPlaying(false)}
       />
+
+      {updateAvailable && (
+        <div className="sw-update-toast" role="alert" aria-live="polite">
+          <span>A new version is available.</span>
+          <button
+            className="sw-update-btn"
+            onClick={() => { if (swUpdateRef.current) swUpdateRef.current() }}
+          >Reload</button>
+          <button
+            className="sw-update-dismiss"
+            onClick={() => setUpdateAvailable(false)}
+            aria-label="Dismiss update notice"
+          >Later</button>
+        </div>
+      )}
 
       </div>
   )
