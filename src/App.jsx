@@ -11,11 +11,18 @@ const SAVE_INTERVAL_MS = 3000 // throttle audio-position saves
 const READER_FONT = '"Iowan Old Style", "Palatino Linotype", Palatino, "Hoefler Text", Constantia, Georgia, serif'
 const THEMES = {
   dark: {
-    readerBg: '#21212C', readerFg: '#EDEDF1', accent: '#A1A1B8', hl: 'rgba(161,161,184,0.30)',
+    // A11Y-10: hl alpha bumped from 0.30 to 0.55. The previous value
+    // produced an effective band color of #474756 against the reader bg
+    // — only 1.75:1 contrast, well below WCAG 1.4.11's 3:1 minimum for
+    // non-text contrast. At 0.55 the effective color is ~#72728A (~3.4:1).
+    readerBg: '#21212C', readerFg: '#EDEDF1', accent: '#A1A1B8', hl: 'rgba(161,161,184,0.55)',
     link: '#B3B3C5',
   },
   light: {
-    readerBg: '#C9C9D6', readerFg: '#2C2C3A', accent: '#53536D', hl: 'rgba(83,83,109,0.22)',
+    // A11Y-10: hl alpha bumped from 0.22 to 0.45. Previous effective band
+    // #AFAFBE was 1.32:1 against the reader bg. At 0.45 the effective
+    // color is ~#8E8EA0 (~3.1:1).
+    readerBg: '#C9C9D6', readerFg: '#2C2C3A', accent: '#53536D', hl: 'rgba(83,83,109,0.45)',
     link: '#424257',
   },
 }
@@ -299,6 +306,15 @@ export default function App() {
   }, [])
 
   const chapter = manifest?.chapters[currentIndex]
+
+  // A11Y-12: Esc closes the settings panel; the old SettingsModal had this
+  // and the inline-panel refactor lost it. Restores keyboard parity.
+  useEffect(() => {
+    if (!showSettings) return
+    const onKey = (e) => { if (e.key === 'Escape') setShowSettings(false) }
+    document.addEventListener('keydown', onKey)
+    return () => document.removeEventListener('keydown', onKey)
+  }, [showSettings])
 
   // ---- load timings for current chapter ----
   useEffect(() => {
@@ -608,22 +624,31 @@ export default function App() {
     navigator.mediaSession.setActionHandler('nexttrack', next)
   }, [chapter])
 
-  if (loading) return <div className="loading">Loading…</div>
+  // A11Y-03: role=status + aria-live=polite so screen readers announce
+  // when the app finishes loading (was silent).
+  if (loading) return <div className="loading" role="status" aria-live="polite">Loading…</div>
 
   return (
     <div className="app">
+      {/* A11Y-13: skip link so keyboard users can bypass the sidebar + topbar
+          and land in the reader. Visually hidden until focused. */}
+      <a href="#main-reader" className="skip-link">Skip to reader</a>
       <header className="topbar">
         <button className="icon-btn" onClick={() => setSidebarOpen(o => !o)} aria-label="Toggle chapters">☰</button>
         <h1 className="book-title">{manifest.title}</h1>
-        {syncAvailable && <span className="sync-badge" title="Word-level sync enabled">sync</span>}
+        {/* A11Y-06: screen-reader-friendly label + role=status so the badge
+            announces when sync activates between chapters. */}
+        {syncAvailable && <span className="sync-badge" role="status" aria-label="Word-level sync enabled" title="Word-level sync enabled">sync</span>}
         <span className="spacer" />
       </header>
 
       <div className="main">
         <aside className={`sidebar ${sidebarOpen ? '' : 'closed'}`}>
           <div className="sidebar-header sidebar-header-row">
-            <span>Chapters</span>
-            <button className="icon-btn sidebar-gear" onClick={() => setShowSettings(s => !s)} aria-label="Settings" aria-expanded={showSettings} title="Settings">
+            {/* A11Y-07: real heading so screen-reader landmark nav can find
+                the chapter list (was a plain <span>). */}
+            <h2 id="chapters-heading" className="sidebar-heading">Chapters</h2>
+            <button className="icon-btn sidebar-gear" onClick={() => setShowSettings(s => !s)} aria-label="Settings" aria-expanded={showSettings} aria-controls="settings-panel" title="Settings">
               <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
                 <circle cx="12" cy="12" r="3" />
                 <path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 1 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 1 1-4 0v-.09a1.65 1.65 0 0 0-1-1.51 1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 1 1-2.83-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 1 1 0-4h.09a1.65 1.65 0 0 0 1.51-1 1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 1 1 2.83-2.83l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 1 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 1 1 2.83 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 1 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z" />
@@ -636,24 +661,35 @@ export default function App() {
               prefs={prefs} setPrefs={setPrefs}
             />
           ) : (
-            <ol className="chapter-list">
-              {manifest.chapters.map((c, i) => (
-                <li key={c.id}>
-                  <button className={`chapter-item ${i === currentIndex ? 'active' : ''}`} onClick={() => selectChapter(i)}>
-                    <span className="chapter-title">{c.title}</span>
-                    <span className="chapter-meta">
-                      {c.type === 'title-only' && <span className="badge">title</span>}
-                      {c.type === 'front-matter' && <span className="badge alt">intro</span>}
-                      {fmt(c.duration)}
-                    </span>
-                  </button>
-                </li>
-              ))}
-            </ol>
+            // A11Y-07: wrap the chapter list in a <nav> with aria-labelledby
+            // so screen-reader landmark navigation finds it.
+            <nav aria-labelledby="chapters-heading">
+              <ol className="chapter-list">
+                {manifest.chapters.map((c, i) => (
+                  <li key={c.id}>
+                    {/* A11Y-08: aria-current tells screen-reader users which
+                        chapter is active. Critical for an audiobook: the
+                        user must know where they are. */}
+                    <button
+                      className={`chapter-item ${i === currentIndex ? 'active' : ''}`}
+                      onClick={() => selectChapter(i)}
+                      aria-current={i === currentIndex ? 'true' : undefined}
+                    >
+                      <span className="chapter-title">{c.title}</span>
+                      <span className="chapter-meta">
+                        {c.type === 'title-only' && <span className="badge" aria-label="Title-only chapter (no audio)">title</span>}
+                        {c.type === 'front-matter' && <span className="badge alt" aria-label="Front matter">intro</span>}
+                        {fmt(c.duration)}
+                      </span>
+                    </button>
+                  </li>
+                ))}
+              </ol>
+            </nav>
           )}
         </aside>
 
-        <main className="reader">
+        <main className="reader" id="main-reader">
           <foliate-view ref={viewCallbackRef} class="foliate-view" />
         </main>
       </div>
@@ -673,6 +709,7 @@ export default function App() {
         <input
           className="seek"
           type="range" min={0} max={duration || 0} value={currentTime}
+          aria-label="Seek audio position"
           onChange={(e) => {
             const t = parseFloat(e.target.value)
             if (audioRef.current) audioRef.current.currentTime = t
@@ -702,7 +739,10 @@ function SettingsPanel({ theme, setTheme, prefs, setPrefs }) {
   const fontEntries = Object.entries(FONTS)
   const flowEntries = FLOW_OPTS
   return (
-    <div className="settings-panel">
+    // A11Y-04: id matches the gear's aria-controls; role=region + aria-labelledby
+    // give the panel a landmark AT can find.
+    <div className="settings-panel" id="settings-panel" role="region" aria-labelledby="settings-heading">
+      <h2 id="settings-heading" className="visually-hidden">Reading settings</h2>
       <div className="settings-group">
         <label className="settings-label">Theme</label>
         <div className="option-row">
@@ -741,18 +781,18 @@ function SettingsPanel({ theme, setTheme, prefs, setPrefs }) {
       <div className="settings-group">
         <label className="settings-label">Size</label>
         <div className="size-row">
-          <button className="size-btn" onClick={() => setPrefs(p => ({ ...p, size: Math.max(16, p.size - 1) }))} aria-label="Smaller">−</button>
+          <button className="size-btn" onClick={() => setPrefs(p => ({ ...p, size: Math.max(16, p.size - 1) }))} aria-label="Decrease text size">−</button>
           <div className="size-value">{prefs.size} px</div>
-          <button className="size-btn" onClick={() => setPrefs(p => ({ ...p, size: Math.min(32, p.size + 1) }))} aria-label="Larger">+</button>
+          <button className="size-btn" onClick={() => setPrefs(p => ({ ...p, size: Math.min(32, p.size + 1) }))} aria-label="Increase text size">+</button>
         </div>
       </div>
 
       <div className="settings-group">
         <label className="settings-label">Spacing</label>
         <div className="size-row">
-          <button className="size-btn" onClick={() => setPrefs(p => ({ ...p, lineHeight: Math.max(1.3, Math.round((p.lineHeight - 0.1) * 10) / 10) }))} aria-label="Tighter">−</button>
+          <button className="size-btn" onClick={() => setPrefs(p => ({ ...p, lineHeight: Math.max(1.3, Math.round((p.lineHeight - 0.1) * 10) / 10) }))} aria-label="Decrease line spacing">−</button>
           <div className="size-value">{prefs.lineHeight.toFixed(1)}</div>
-          <button className="size-btn" onClick={() => setPrefs(p => ({ ...p, lineHeight: Math.min(2.2, Math.round((p.lineHeight + 0.1) * 10) / 10) }))} aria-label="Looser">+</button>
+          <button className="size-btn" onClick={() => setPrefs(p => ({ ...p, lineHeight: Math.min(2.2, Math.round((p.lineHeight + 0.1) * 10) / 10) }))} aria-label="Increase line spacing">+</button>
         </div>
       </div>
 
