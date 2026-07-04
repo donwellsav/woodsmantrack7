@@ -15,9 +15,11 @@ AUDIO = ROOT.parent / "ElevenLabs_woodsman_track_seven_6x9_kdp_v2_with_toc_docx"
 CLIP_DIR = ROOT / "data" / "clips"
 CLIP_DIR.mkdir(parents=True, exist_ok=True)
 
-# chapters to spot-check
-CHAPTERS = ["ch002", "ch014", "ch027"]
-WINDOW = 12.0  # seconds of audio to transcribe per chapter
+# chapters to spot-check (override via argv, e.g. `verify_sync.py ch002 ch014 *2`)
+ALL_CHAPTERS = sorted(p.stem for p in TIMINGS.glob("*.json"))
+CHAPTERS = ALL_CHAPTERS  # default: every aligned chapter
+WINDOWS_PER_CHAPTER = 2   # how many random windows per chapter
+WINDOW = 12.0             # seconds of audio to transcribe per window
 
 random.seed(7)
 
@@ -31,11 +33,22 @@ def overlap(a, b):
     return len(a & b) / len(a)
 
 def main():
+    # argv: optional chapter ids; a trailing `*N` sets windows-per-chapter
+    global CHAPTERS, WINDOWS_PER_CHAPTER
+    args = sys.argv[1:]
+    if args:
+        if args[-1].startswith("*"):
+            WINDOWS_PER_CHAPTER = int(args.pop()[1:])
+        if args:
+            CHAPTERS = args
     model = stable_whisper.load_model("base.en")
+    print(f"\nVerifying {len(CHAPTERS)} chapter(s) x {WINDOWS_PER_CHAPTER} window(s) "
+          f"x {WINDOW:.0f}s = {len(CHAPTERS)*WINDOWS_PER_CHAPTER} transcriptions")
     print(f"\n{'chapter':7} {'window':>14} {'align_words':>22} {'transcribe_words':>22} {'recall':>7}")
     print("-" * 90)
     results = []
     for cid in CHAPTERS:
+      for _ in range(WINDOWS_PER_CHAPTER):
         tj = TIMINGS / f"{cid}.json"
         d = json.load(open(tj))
         words = d["words"]
@@ -65,8 +78,10 @@ def main():
 
     print("-" * 90)
     avg = sum(results) / len(results) if results else 0
-    print(f"\navg word recall (alignment vs independent transcription): {avg:.0%}")
-    print("(>=70% = well synced; the gap is Whisper transcription variance, not desync.)")
+    below = [r for r in results if r < 0.70]
+    print(f"\nsamples: {len(results)} | avg recall: {avg:.0%} | "
+          f"min: {min(results):.0%} | below 70%: {len(below)}")
+    print(">=70% = well synced; the gap is Whisper transcription variance, not desync.")
 
 if __name__ == "__main__":
     main()

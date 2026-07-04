@@ -20,12 +20,24 @@ const THEMES = {
   },
 }
 
+// @font-face rules embedded in the reader CSS so each EPUB iframe can load
+// the fonts from /fonts/* (same origin). These cover the three non-system
+// fonts exposed in settings; the others fall through to native stacks.
+const FONT_FACES = `
+@font-face { font-family: 'Lexend'; font-style: normal; font-weight: 400; font-display: swap;
+  src: url('/fonts/lexend-400.woff2') format('woff2'); }
+@font-face { font-family: 'Atkinson Hyperlegible'; font-style: normal; font-weight: 400; font-display: swap;
+  src: url('/fonts/atkinson-400.woff2') format('woff2'); }
+@font-face { font-family: 'OpenDyslexic'; font-style: normal; font-weight: 400; font-display: swap;
+  src: url('/fonts/opendyslexic-400.woff2') format('woff2'); }
+`
+
 function readerCss(theme, prefs) {
   const t = THEMES[theme] || THEMES.dark
   const font = FONTS[prefs?.font] || FONTS.iowan
   const size = prefs?.size ?? 19
   const lh = prefs?.lineHeight ?? 1.7
-  return `
+  return FONT_FACES + `
     html, body {
       background: ${t.readerBg} !important;
       color: ${t.readerFg} !important;
@@ -35,13 +47,13 @@ function readerCss(theme, prefs) {
       -webkit-font-smoothing: antialiased;
     }
     body { max-width: 38em !important; margin: 0 auto !important; padding: 1em 1.2em !important; }
+    section, section.level1, .level1, section > * { max-width: 38em !important; margin-left: auto !important; margin-right: auto !important; }
     p { margin: 0 0 1em !important; orphans: 2; widows: 2; }
     h1, h2, h3 { line-height: 1.3 !important; color: ${t.readerFg} !important; }
     a, a:link { color: ${t.link} !important; }
     mark.word-hl {
       background: linear-gradient(transparent 58%, ${t.hl} 58%) !important;
       color: inherit !important;
-      border-radius: 2px;
     }
   `
 }
@@ -235,6 +247,8 @@ export default function App() {
     if (view?.renderer?.setStyles) {
       try { view.renderer.setStyles(readerCss(themeRef.current, prefsRef.current)) } catch {}
     }
+    // re-pin single-column on the next frame (setStyles re-applies the epub CSS)
+    requestAnimationFrame(() => { try { enforceSingleColumn() } catch {} })
   }
 
   // ---- reading-progress persistence ----
@@ -372,7 +386,33 @@ export default function App() {
     }
     buildSectionTextMap._retries = 0
     textMapRef.current = { fullText: combined, posMap: combinedMap }
+    enforceSingleColumn()
     mapWordsToDOM()
+  }
+
+  // Force single-column layout on the EPUB body. The pandoc epub stylesheet
+  // sets inline !important max-width: none on the body so it spans the full
+  // viewport (which is correct for paginated reading). For our narrow reader
+  // we explicitly cap it and the wrapping <section>.
+  function enforceSingleColumn() {
+    const view = viewRef.current
+    if (!view?.renderer) return
+    let docs
+    try { docs = view.renderer.getContents() } catch { return }
+    for (const d of docs || []) {
+      const doc = d.doc
+      if (!doc?.body) continue
+      const max = '38em'
+      doc.body.style.setProperty('max-width', max, 'important')
+      doc.body.style.setProperty('max-height', 'none', 'important')
+      doc.body.style.setProperty('margin', '0 auto', 'important')
+      // also pin the level-1 section wrappers (foliate / pandoc put content there)
+      for (const sec of doc.querySelectorAll('section, .level1, section > *')) {
+        sec.style.setProperty('max-width', max, 'important')
+        sec.style.setProperty('margin-left', 'auto', 'important')
+        sec.style.setProperty('margin-right', 'auto', 'important')
+      }
+    }
   }
 
   // ---- open foliate-view (callback ref so it runs after the element is attached) ----
@@ -422,7 +462,7 @@ export default function App() {
       foliateReady.current = true
       // Rebuild the text map only when a section (chapter) loads — NOT on every
       // relocate/page-change, which would block the animation frame and stutter.
-      view.addEventListener('load', () => buildSectionTextMap())
+      view.addEventListener('load', () => { buildSectionTextMap(); enforceSingleColumn() })
       buildSectionTextMap()
       if (pendingNav.current) {
         const cfi = cfiMapRef.current[pendingNav.current]
@@ -577,31 +617,40 @@ export default function App() {
         <h1 className="book-title">{manifest.title}</h1>
         {syncAvailable && <span className="sync-badge" title="Word-level sync enabled">sync</span>}
         <span className="spacer" />
-        <button className="icon-btn" onClick={() => setShowSettings(true)} aria-label="Settings" title="Settings">
-          <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
-            <circle cx="12" cy="12" r="3" />
-            <path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 1 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 1 1-4 0v-.09a1.65 1.65 0 0 0-1-1.51 1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 1 1-2.83-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 1 1 0-4h.09a1.65 1.65 0 0 0 1.51-1 1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 1 1 2.83-2.83l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 1 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 1 1 2.83 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 1 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z" />
-          </svg>
-        </button>
       </header>
 
       <div className="main">
         <aside className={`sidebar ${sidebarOpen ? '' : 'closed'}`}>
-          <div className="sidebar-header">Chapters</div>
-          <ol className="chapter-list">
-            {manifest.chapters.map((c, i) => (
-              <li key={c.id}>
-                <button className={`chapter-item ${i === currentIndex ? 'active' : ''}`} onClick={() => selectChapter(i)}>
-                  <span className="chapter-title">{c.title}</span>
-                  <span className="chapter-meta">
-                    {c.type === 'title-only' && <span className="badge">title</span>}
-                    {c.type === 'front-matter' && <span className="badge alt">intro</span>}
-                    {fmt(c.duration)}
-                  </span>
-                </button>
-              </li>
-            ))}
-          </ol>
+          <div className="sidebar-header sidebar-header-row">
+            <span>Chapters</span>
+            <button className="icon-btn sidebar-gear" onClick={() => setShowSettings(s => !s)} aria-label="Settings" aria-expanded={showSettings} title="Settings">
+              <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+                <circle cx="12" cy="12" r="3" />
+                <path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 1 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 1 1-4 0v-.09a1.65 1.65 0 0 0-1-1.51 1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 1 1-2.83-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 1 1 0-4h.09a1.65 1.65 0 0 0 1.51-1 1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 1 1 2.83-2.83l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 1 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 1 1 2.83 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 1 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z" />
+              </svg>
+            </button>
+          </div>
+          {showSettings ? (
+            <SettingsPanel
+              theme={theme} setTheme={setTheme}
+              prefs={prefs} setPrefs={setPrefs}
+            />
+          ) : (
+            <ol className="chapter-list">
+              {manifest.chapters.map((c, i) => (
+                <li key={c.id}>
+                  <button className={`chapter-item ${i === currentIndex ? 'active' : ''}`} onClick={() => selectChapter(i)}>
+                    <span className="chapter-title">{c.title}</span>
+                    <span className="chapter-meta">
+                      {c.type === 'title-only' && <span className="badge">title</span>}
+                      {c.type === 'front-matter' && <span className="badge alt">intro</span>}
+                      {fmt(c.duration)}
+                    </span>
+                  </button>
+                </li>
+              ))}
+            </ol>
+          )}
         </aside>
 
         <main className="reader">
@@ -643,133 +692,81 @@ export default function App() {
         onPause={() => setIsPlaying(false)}
       />
 
-      {showSettings && (
-        <SettingsModal
-          theme={theme}
-          setTheme={setTheme}
-          prefs={prefs}
-          setPrefs={setPrefs}
-          onClose={() => setShowSettings(false)}
-        />
-      )}
-    </div>
+      </div>
   )
 }
 
-function SettingsModal({ theme, setTheme, prefs, setPrefs, onClose }) {
-  // close on Esc; close on backdrop click
-  useEffect(() => {
-    const onKey = (e) => { if (e.key === 'Escape') onClose() }
-    document.addEventListener('keydown', onKey)
-    return () => document.removeEventListener('keydown', onKey)
-  }, [onClose])
-
-  const sizeStep = 1
+// Inline settings panel — replaces the chapter list when the gear is active.
+// Sits in the same sidebar so no modal/overlay disrupts the layout.
+function SettingsPanel({ theme, setTheme, prefs, setPrefs }) {
   const fontEntries = Object.entries(FONTS)
   const flowEntries = FLOW_OPTS
-
   return (
-    <div className="settings-backdrop" onClick={onClose} role="presentation">
-      <div className="settings" role="dialog" aria-label="Settings" onClick={(e) => e.stopPropagation()}>
-        <div className="settings-header">
-          <div className="settings-title">Settings</div>
-          <button className="settings-close" onClick={onClose} aria-label="Close">×</button>
+    <div className="settings-panel">
+      <div className="settings-group">
+        <label className="settings-label">Theme</label>
+        <div className="option-row">
+          <button
+            className={`option-btn ${theme === 'dark' ? 'active' : ''}`}
+            onClick={() => setTheme('dark')}
+            aria-pressed={theme === 'dark'}
+          >Dark</button>
+          <button
+            className={`option-btn ${theme === 'light' ? 'active' : ''}`}
+            onClick={() => setTheme('light')}
+            aria-pressed={theme === 'light'}
+          >Light</button>
         </div>
+      </div>
 
-        <div className="settings-group">
-          <label className="settings-label">Theme</label>
-          <div className="option-row">
+      <div className="settings-group">
+        <label className="settings-label">Font</label>
+        <div className="font-list">
+          {fontEntries.map(([id, f]) => (
             <button
-              className={`option-btn ${theme === 'dark' ? 'active' : ''}`}
-              onClick={() => setTheme('dark')}
-              aria-pressed={theme === 'dark'}
+              key={id}
+              className={`font-item ${prefs.font === id ? 'active' : ''}`}
+              onClick={() => setPrefs(p => ({ ...p, font: id }))}
+              aria-pressed={prefs.font === id}
+              title={f.note}
             >
-              <span className="swatch" style={{ background: '#1E1E28' }} />
-              Dark
+              <span className="font-sample" style={{ fontFamily: f.css }}>Aa</span>
+              <span className="font-name" style={{ fontFamily: f.css }}>{f.label}</span>
+              <span className="font-note">{f.note}</span>
             </button>
-            <button
-              className={`option-btn ${theme === 'light' ? 'active' : ''}`}
-              onClick={() => setTheme('light')}
-              aria-pressed={theme === 'light'}
-            >
-              <span className="swatch" style={{ background: '#C9C9D6', border: '1px solid #A1A1B8' }} />
-              Light
-            </button>
-          </div>
+          ))}
         </div>
+      </div>
 
-        <div className="settings-group">
-          <label className="settings-label">Reading font</label>
-          <div className="option-row">
-            {fontEntries.map(([id, f]) => (
-              <button
-                key={id}
-                className={`option-btn ${prefs.font === id ? 'active' : ''}`}
-                onClick={() => setPrefs(p => ({ ...p, font: id }))}
-                aria-pressed={prefs.font === id}
-                title={f.note}
-                style={id !== 'serif' && id !== 'iowan' ? { fontFamily: f.css } : undefined}
-              >
-                <span className="font-sample" style={id !== 'serif' ? { fontFamily: f.css } : undefined}>Aa</span>
-                <span style={{ fontSize: '0.72rem' }}>{f.label}</span>
-              </button>
-            ))}
-          </div>
+      <div className="settings-group">
+        <label className="settings-label">Size</label>
+        <div className="size-row">
+          <button className="size-btn" onClick={() => setPrefs(p => ({ ...p, size: Math.max(16, p.size - 1) }))} aria-label="Smaller">−</button>
+          <div className="size-value">{prefs.size} px</div>
+          <button className="size-btn" onClick={() => setPrefs(p => ({ ...p, size: Math.min(32, p.size + 1) }))} aria-label="Larger">+</button>
         </div>
+      </div>
 
-        <div className="settings-group">
-          <label className="settings-label">Text size</label>
-          <div className="size-row">
-            <button
-              className="size-btn"
-              onClick={() => setPrefs(p => ({ ...p, size: Math.max(16, p.size - sizeStep) }))}
-              aria-label="Smaller text"
-            >−</button>
-            <div className="size-value">{prefs.size} px</div>
-            <button
-              className="size-btn"
-              onClick={() => setPrefs(p => ({ ...p, size: Math.min(32, p.size + sizeStep) }))}
-              aria-label="Larger text"
-            >+</button>
-          </div>
+      <div className="settings-group">
+        <label className="settings-label">Spacing</label>
+        <div className="size-row">
+          <button className="size-btn" onClick={() => setPrefs(p => ({ ...p, lineHeight: Math.max(1.3, Math.round((p.lineHeight - 0.1) * 10) / 10) }))} aria-label="Tighter">−</button>
+          <div className="size-value">{prefs.lineHeight.toFixed(1)}</div>
+          <button className="size-btn" onClick={() => setPrefs(p => ({ ...p, lineHeight: Math.min(2.2, Math.round((p.lineHeight + 0.1) * 10) / 10) }))} aria-label="Looser">+</button>
         </div>
+      </div>
 
-        <div className="settings-group">
-          <label className="settings-label">Page turn style</label>
-          <div className="option-row">
-            {flowEntries.map((f) => (
-              <button
-                key={f.id}
-                className={`option-btn ${prefs.flow === f.id ? 'active' : ''}`}
-                onClick={() => setPrefs(p => ({ ...p, flow: f.id }))}
-                aria-pressed={prefs.flow === f.id}
-              >
-                <span style={{ fontWeight: 700 }}>{f.label}</span>
-                <span style={{ fontSize: '0.72rem', color: 'var(--text-dim)' }}>{f.note}</span>
-              </button>
-            ))}
-          </div>
-        </div>
-
-        <div className="settings-group">
-          <label className="settings-label">Line spacing</label>
-          <div className="size-row">
+      <div className="settings-group">
+        <label className="settings-label">Page</label>
+        <div className="option-row">
+          {flowEntries.map((f) => (
             <button
-              className="size-btn"
-              onClick={() => setPrefs(p => ({ ...p, lineHeight: Math.max(1.3, Math.round((p.lineHeight - 0.1) * 10) / 10) }))}
-              aria-label="Tighter spacing"
-            >−</button>
-            <div className="size-value">{prefs.lineHeight.toFixed(1)}</div>
-            <button
-              className="size-btn"
-              onClick={() => setPrefs(p => ({ ...p, lineHeight: Math.min(2.2, Math.round((p.lineHeight + 0.1) * 10) / 10) }))}
-              aria-label="Looser spacing"
-            >+</button>
-          </div>
-        </div>
-
-        <div className="footnote">
-          Reading position and preferences are saved locally on this device.
+              key={f.id}
+              className={`option-btn ${prefs.flow === f.id ? 'active' : ''}`}
+              onClick={() => setPrefs(p => ({ ...p, flow: f.id }))}
+              aria-pressed={prefs.flow === f.id}
+            >{f.label}</button>
+          ))}
         </div>
       </div>
     </div>
