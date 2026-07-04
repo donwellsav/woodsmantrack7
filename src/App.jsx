@@ -15,7 +15,7 @@ const THEMES = {
     link: '#B3B3C5',
   },
   light: {
-    readerBg: '#EDEDF1', readerFg: '#323241', accent: '#53536D', hl: 'rgba(83,83,109,0.18)',
+    readerBg: '#B3B3C5', readerFg: '#2C2C3A', accent: '#53536D', hl: 'rgba(83,83,109,0.20)',
     link: '#424257',
   },
 }
