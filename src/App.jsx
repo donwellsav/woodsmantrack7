@@ -213,7 +213,7 @@ export default function App() {
   const pendingNav = useRef(null)
   const timingsCache = useRef({})
   const timingsRef = useRef(null)         // mirror of timings state for event handlers
-  const cfiMapRef = useRef({})            // chapter id -> CFI for goTo
+  const sectionIndexMapRef = useRef({})   // chapter id -> section index for renderer.goTo
   const textMapRef = useRef(null)         // { fullText, posMap } for current section
   const wordSpansRef = useRef([])         // [{node, offset, length}] per timing word
   const currentMarkRef = useRef(null)     // currently inserted <mark>
@@ -449,15 +449,17 @@ export default function App() {
       await view.renderer.firstSection().catch(() => {})
       // theme the EPUB content (foliate stores + reapplies these on every chapter)
       try { view.renderer.setStyles(readerCss(themeRef.current, prefsRef.current)) } catch {}
-      // build cfi -> chapter id map. EPUB section hrefs are null here, so map by index:
-      // 0=titlepage, 1=nav, 2=ch001 (empty placeholder), 3=ch002 (The Door)...
+      // SMOKE-1: build chapter-id -> section-index map. The previous approach
+      // used CFIs (epubcfi(/6/8) etc.) but foliate's CFI parser fails inside
+      // partsToNode for this EPUB — view.goTo(cfi) throws and the reader never
+      // navigates. Section indices are integers and don't have that problem.
+      // Each section's `id` looks like "EPUB/text/ch002.xhtml"; we extract
+      // the chXXX token so the map survives re-ordering of front-matter.
       if (view.book?.sections) {
-        const sections = view.book.sections
-        for (let i = 3; i < sections.length; i++) {
-          const chNum = i - 1
-          const cfi = sections[i]?.cfi
-          if (cfi) cfiMapRef.current[`ch${String(chNum).padStart(3, '0')}`] = cfi
-        }
+        view.book.sections.forEach((s, i) => {
+          const m = typeof s.id === 'string' ? /ch(\d{3})\.xhtml/i.exec(s.id) : null
+          if (m) sectionIndexMapRef.current[`ch${m[1]}`] = i
+        })
       }
       foliateReady.current = true
       // Rebuild the text map only when a section (chapter) loads — NOT on every
@@ -465,8 +467,8 @@ export default function App() {
       view.addEventListener('load', () => { buildSectionTextMap(); enforceSingleColumn() })
       buildSectionTextMap()
       if (pendingNav.current) {
-        const cfi = cfiMapRef.current[pendingNav.current]
-        if (cfi) view.goTo(cfi).catch(() => {})
+        const idx = sectionIndexMapRef.current[pendingNav.current]
+        if (typeof idx === 'number') view.renderer.goTo({ index: idx }).catch(() => {})
         pendingNav.current = null
       }
     } catch (e) {
@@ -491,8 +493,12 @@ export default function App() {
       pendingNav.current = chapter.id
       return
     }
-    const cfi = cfiMapRef.current[chapter.id]
-    if (cfi) view.goTo(cfi).catch(() => {})
+    // SMOKE-1: use renderer.goTo({index}) instead of view.goTo(cfi). The CFI
+    // form throws inside foliate's partsToNode for this EPUB; section indices
+    // are robust. See the map builder in openFoliateView for how the index is
+    // derived from each section's id.
+    const idx = sectionIndexMapRef.current[chapter.id]
+    if (typeof idx === 'number') view.renderer.goTo({ index: idx }).catch(() => {})
   }, [chapter])
 
   // ---- load audio when chapter changes ----
