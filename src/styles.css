@@ -2,32 +2,33 @@
 /* Dark: deep warm charcoal + muted gold accent */
 :root,
 [data-theme='dark'] {
-  --bg: #1a1820;
-  --bg-elev: #232029;
-  --bg-elev2: #2c2935;
-  --text: #e8e3d8;
-  --text-dim: #9a93a3;
-  --accent: #c9a35e;
-  --accent-strong: #d8b878;
-  --border: #353140;
-  --reader-bg: #1f1d26;
-  --warn: #d99b57;
+  --bg: #1E1E28;
+  --bg-elev: #24242F;
+  --bg-elev2: #2C2C3A;
+  --text: #F4F4F7;
+  --text-dim: #9696AF;
+  --accent: #A1A1B8;
+  --accent-strong: #B3B3C5;
+  --on-accent: #1E1E28;
+  --border: #2C2C3A;
+  --reader-bg: #21212C;
+  --warn: #9696AF;
   --shadow: 0 8px 28px rgba(0, 0, 0, 0.45);
 }
 
-/* Light: warm paper + sepia accent */
 [data-theme='light'] {
-  --bg: #f4efe3;
-  --bg-elev: #efe9da;
-  --bg-elev2: #e6dfcc;
-  --text: #2c271f;
-  --text-dim: #6b6354;
-  --accent: #8a6d3b;
-  --accent-strong: #6f5630;
-  --border: #d8cfb8;
-  --reader-bg: #f7f3ea;
-  --warn: #a9794a;
-  --shadow: 0 8px 24px rgba(80, 60, 30, 0.16);
+  --bg: #F4F4F7;
+  --bg-elev: #EDEDF1;
+  --bg-elev2: #E6E6EC;
+  --text: #2C2C3A;
+  --text-dim: #727294;
+  --accent: #53536D;
+  --accent-strong: #424257;
+  --on-accent: #FBFBFC;
+  --border: #D7D7E1;
+  --reader-bg: #FBFBFC;
+  --warn: #727294;
+  --shadow: 0 8px 24px rgba(30, 30, 40, 0.12);
 }
 
 * { box-sizing: border-box; margin: 0; padding: 0; }
@@ -102,10 +103,10 @@ body {
   font-size: 0.74rem; color: var(--text-dim);
 }
 .badge {
-  background: var(--warn); color: #1a1300; border-radius: 4px;
+  background: var(--warn); color: var(--on-accent); border-radius: 4px;
   padding: 1px 5px; font-size: 0.62rem; font-weight: 700; text-transform: uppercase;
 }
-.badge.alt { background: var(--accent); color: #1a1300; }
+.badge.alt { background: var(--accent); color: var(--on-accent); }
 
 /* reader */
 .reader {
@@ -116,7 +117,7 @@ body {
 
 /* sync badge in topbar */
 .sync-badge {
-  background: var(--accent); color: #1a1300;
+  background: var(--accent); color: var(--on-accent);
   font-size: 0.65rem; font-weight: 700; letter-spacing: 0.6px;
   padding: 2px 7px; border-radius: 10px; text-transform: uppercase;
   margin-left: 4px;
@@ -140,7 +141,7 @@ body {
 .player-controls { display: flex; align-items: center; gap: 4px; }
 .play-btn {
   width: 44px; height: 44px; border-radius: 50%; border: none;
-  background: var(--accent-strong); color: #1a1300; font-size: 1.1rem;
+  background: var(--accent-strong); color: var(--on-accent); font-size: 1.1rem;
   cursor: pointer; display: flex; align-items: center; justify-content: center;
   transition: background 0.15s ease, transform 0.1s ease;
 }

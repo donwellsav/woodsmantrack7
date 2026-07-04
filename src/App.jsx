@@ -11,12 +11,12 @@ const SAVE_INTERVAL_MS = 3000 // throttle audio-position saves
 const READER_FONT = '"Iowan Old Style", "Palatino Linotype", Palatino, "Hoefler Text", Constantia, Georgia, serif'
 const THEMES = {
   dark: {
-    readerBg: '#1f1d26', readerFg: '#e7e2d6', accent: '#c9a35e', hl: 'rgba(201,163,94,0.38)',
-    link: '#cdb07a',
+    readerBg: '#21212C', readerFg: '#EDEDF1', accent: '#A1A1B8', hl: 'rgba(161,161,184,0.30)',
+    link: '#B3B3C5',
   },
   light: {
-    readerBg: '#f7f3ea', readerFg: '#2c271f', accent: '#8a6d3b', hl: 'rgba(138,109,59,0.30)',
-    link: '#6f5630',
+    readerBg: '#FBFBFC', readerFg: '#2C2C3A', accent: '#53536D', hl: 'rgba(83,83,109,0.22)',
+    link: '#424257',
   },
 }
 
