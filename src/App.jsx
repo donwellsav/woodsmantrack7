@@ -4,7 +4,52 @@ const EPUB_URL = '/book.epub'
 const MANIFEST_URL = '/chapters.json'
 const AUDIO_BASE = '/audio'
 const PROGRESS_KEY = 'woodsman-progress-v1'
+const THEME_KEY = 'woodsman-theme-v1'
 const SAVE_INTERVAL_MS = 3000 // throttle audio-position saves
+
+// Readable book typography + colors for each theme, injected into the EPUB iframe.
+const READER_FONT = '"Iowan Old Style", "Palatino Linotype", Palatino, "Hoefler Text", Constantia, Georgia, serif'
+const THEMES = {
+  dark: {
+    readerBg: '#1f1d26', readerFg: '#e7e2d6', accent: '#c9a35e', hl: 'rgba(201,163,94,0.38)',
+    link: '#cdb07a',
+  },
+  light: {
+    readerBg: '#f7f3ea', readerFg: '#2c271f', accent: '#8a6d3b', hl: 'rgba(138,109,59,0.30)',
+    link: '#6f5630',
+  },
+}
+
+function readerCss(theme) {
+  const t = THEMES[theme] || THEMES.dark
+  return `
+    html, body {
+      background: ${t.readerBg} !important;
+      color: ${t.readerFg} !important;
+      font-family: ${READER_FONT} !important;
+      font-size: 19px !important;
+      line-height: 1.7 !important;
+      -webkit-font-smoothing: antialiased;
+    }
+    body { max-width: 38em !important; margin: 0 auto !important; padding: 1em 1.2em !important; }
+    p { margin: 0 0 1em !important; orphans: 2; widows: 2; }
+    h1, h2, h3 { line-height: 1.3 !important; color: ${t.readerFg} !important; }
+    a, a:link { color: ${t.link} !important; }
+    mark.word-hl {
+      background: linear-gradient(transparent 58%, ${t.hl} 58%) !important;
+      color: inherit !important;
+      border-radius: 2px;
+    }
+  `
+}
+
+function initialTheme() {
+  try {
+    const saved = localStorage.getItem(THEME_KEY)
+    if (saved === 'dark' || saved === 'light') return saved
+  } catch {}
+  return window.matchMedia?.('(prefers-color-scheme: light)').matches ? 'light' : 'dark'
+}
 
 function fmt(sec) {
   if (!sec || !isFinite(sec)) return '0:00'
@@ -85,6 +130,8 @@ export default function App() {
   const [sidebarOpen, setSidebarOpen] = useState(true)
   const [syncAvailable, setSyncAvailable] = useState(false)
   const [timings, setTimings] = useState(null)
+  const [theme, setTheme] = useState(initialTheme)
+  const themeRef = useRef(theme)
 
   const viewRef = useRef(null)
   const audioRef = useRef(null)
@@ -101,6 +148,16 @@ export default function App() {
   const lastSaveRef = useRef(0)            // throttle timestamp for progress saves
 
   useEffect(() => { timingsRef.current = timings }, [timings])
+  useEffect(() => {
+    themeRef.current = theme
+    try { localStorage.setItem(THEME_KEY, theme) } catch {}
+    document.documentElement.setAttribute('data-theme', theme)
+    // re-theme the EPUB content (foliate reapplies these styles on every chapter)
+    const view = viewRef.current
+    if (view?.renderer?.setStyles) {
+      try { view.renderer.setStyles(readerCss(theme)) } catch {}
+    }
+  }, [theme])
 
   // ---- reading-progress persistence ----
   function saveProgress(idx, time) {
@@ -245,6 +302,8 @@ export default function App() {
       await view.open(file)
       // foliate renders nothing until you navigate — trigger the first section
       await view.renderer.firstSection().catch(() => {})
+      // theme the EPUB content (foliate stores + reapplies these on every chapter)
+      try { view.renderer.setStyles(readerCss(themeRef.current)) } catch {}
       // build cfi -> chapter id map. EPUB section hrefs are null here, so map by index:
       // 0=titlepage, 1=nav, 2=ch001 (empty placeholder), 3=ch002 (The Door)...
       if (view.book?.sections) {
@@ -413,6 +472,7 @@ export default function App() {
         <h1 className="book-title">{manifest.title}</h1>
         {syncAvailable && <span className="sync-badge" title="Word-level sync enabled">sync</span>}
         <span className="spacer" />
+        <button className="icon-btn theme-toggle" onClick={() => setTheme(t => t === 'dark' ? 'light' : 'dark')} aria-label="Toggle theme" title={`Switch to ${theme === 'dark' ? 'light' : 'dark'} mode`}>{theme === 'dark' ? '☀' : '☾'}</button>
       </header>
 
       <div className="main">

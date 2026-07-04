@@ -10,6 +10,20 @@
     <link rel="icon" type="image/png" sizes="32x32" href="/icons/favicon-32.png" />
     <link rel="icon" type="image/png" sizes="16x16" href="/icons/favicon-16.png" />
     <link rel="apple-touch-icon" href="/icons/apple-touch-icon.png" />
+    <script>
+      // Set theme before paint to avoid a flash of the wrong colors.
+      (function () {
+        try {
+          var t = localStorage.getItem('woodsman-theme-v1');
+          if (t !== 'dark' && t !== 'light') {
+            t = window.matchMedia && window.matchMedia('(prefers-color-scheme: light)').matches ? 'light' : 'dark';
+          }
+          document.documentElement.setAttribute('data-theme', t);
+        } catch (e) {
+          document.documentElement.setAttribute('data-theme', 'dark');
+        }
+      })();
+    </script>
     <title>Woodsman: Track Seven</title>
   </head>
   <body>
