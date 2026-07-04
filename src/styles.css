@@ -1,14 +1,18 @@
 /* ===== Theme tokens ===== */
-/* Dark: deep warm charcoal + muted gold accent */
+/* Dark: deep warm-charcoal neutrals from the ramp */
 :root,
 [data-theme='dark'] {
   --bg: #1E1E28;
-  --bg-elev: #24242F;
+  --sidebar-bg: #24242F;
+  --bar-bg: #24242F;
+  --bar-fg: #F4F4F7;
+  --bar-fg-dim: #9696AF;
   --bg-elev2: #2C2C3A;
   --text: #F4F4F7;
   --text-dim: #9696AF;
   --accent: #A1A1B8;
-  --accent-strong: #B3B3C5;
+  --btn-bg: #B3B3C5;
+  --btn-fg: #1E1E28;
   --on-accent: #1E1E28;
   --border: #2C2C3A;
   --reader-bg: #21212C;
@@ -16,17 +20,23 @@
   --shadow: 0 8px 28px rgba(0, 0, 0, 0.45);
 }
 
+/* Light: dusky lavender — chapter list #B3B3C5, reading surface #C9C9D6,
+   top/bottom bars #666686 (with light text) */
 [data-theme='light'] {
   --bg: #B3B3C5;
-  --bg-elev: #C1C1D0;
+  --sidebar-bg: #B3B3C5;
+  --bar-bg: #666686;
+  --bar-fg: #F4F4F7;
+  --bar-fg-dim: #C9C9D6;
   --bg-elev2: #C9C9D6;
   --text: #2C2C3A;
   --text-dim: #48485E;
   --accent: #53536D;
-  --accent-strong: #424257;
-  --on-accent: #FBFBFC;
+  --btn-bg: #EDEDF1;
+  --btn-fg: #2C2C3A;
+  --on-accent: #2C2C3A;
   --border: #A1A1B8;
-  --reader-bg: #B3B3C5;
+  --reader-bg: #C9C9D6;
   --warn: #48485E;
   --shadow: 0 8px 24px rgba(30, 30, 40, 0.18);
 }
@@ -53,35 +63,37 @@ body {
   height: 100vh; height: 100dvh;
 }
 
-/* topbar */
+/* topbar — uses --bar-bg with light --bar-fg text */
 .topbar {
   display: flex; align-items: center; gap: 12px;
   padding: 0 16px; height: 52px; min-height: 52px;
-  background: var(--bg-elev); border-bottom: 1px solid var(--border);
+  background: var(--bar-bg); border-bottom: 1px solid var(--border);
+  color: var(--bar-fg);
   padding-top: env(safe-area-inset-top);
 }
 .book-title {
-  font-size: 0.95rem; font-weight: 600; letter-spacing: 0.2px;
+  font-size: 0.95rem; font-weight: 600; letter-spacing: 0.2px; color: var(--bar-fg);
   font-family: "Iowan Old Style", "Palatino Linotype", Palatino, Georgia, serif;
 }
 .spacer { flex: 1; }
 
 .icon-btn {
-  background: none; border: none; color: var(--text);
+  background: none; border: none; color: var(--bar-fg);
   font-size: 1.2rem; cursor: pointer; padding: 6px 8px; border-radius: 6px;
   transition: background 0.15s ease, color 0.15s ease;
 }
-.icon-btn:hover { background: var(--bg-elev2); }
+.icon-btn:hover { background: rgba(255, 255, 255, 0.12); }
 .theme-toggle { font-size: 1.15rem; line-height: 1; }
 
 /* main area */
 .main { flex: 1; display: flex; min-height: 0; }
 
-/* sidebar */
+/* sidebar / chapter list — uses --sidebar-bg with normal --text */
 .sidebar {
   width: 280px; min-width: 280px;
-  background: var(--bg-elev); border-right: 1px solid var(--border);
+  background: var(--sidebar-bg); border-right: 1px solid var(--border);
   overflow-y: auto; transition: margin-left 0.2s, background 0.25s;
+  color: var(--text);
 }
 .sidebar.closed { margin-left: -280px; }
 .sidebar-header {
@@ -95,8 +107,8 @@ body {
   padding: 9px 16px; cursor: pointer; border-left: 3px solid transparent;
   transition: background 0.15s ease;
 }
-.chapter-item:hover { background: var(--bg-elev2); }
-.chapter-item.active { background: var(--bg-elev2); border-left-color: var(--accent); }
+.chapter-item:hover { background: rgba(0, 0, 0, 0.06); }
+.chapter-item.active { background: rgba(0, 0, 0, 0.08); border-left-color: var(--accent); }
 .chapter-title { font-size: 0.9rem; line-height: 1.3; }
 .chapter-meta {
   display: flex; align-items: center; gap: 8px;
@@ -108,44 +120,45 @@ body {
 }
 .badge.alt { background: var(--accent); color: var(--on-accent); }
 
-/* reader */
+/* reader — uses --reader-bg */
 .reader {
   flex: 1; min-width: 0; background: var(--reader-bg); position: relative;
   transition: background 0.25s ease;
 }
 .foliate-view { width: 100%; height: 100%; display: block; }
 
-/* sync badge in topbar */
+/* sync badge in topbar (sits on the dark bar) */
 .sync-badge {
-  background: var(--accent); color: var(--on-accent);
+  background: var(--accent); color: var(--bar-fg);
   font-size: 0.65rem; font-weight: 700; letter-spacing: 0.6px;
   padding: 2px 7px; border-radius: 10px; text-transform: uppercase;
   margin-left: 4px;
 }
 
-/* player */
+/* player — uses --bar-bg with light --bar-fg text */
 .player {
   display: flex; align-items: center; gap: 16px;
   padding: 10px 16px; padding-bottom: calc(10px + env(safe-area-inset-bottom));
-  background: var(--bg-elev); border-top: 1px solid var(--border);
+  background: var(--bar-bg); border-top: 1px solid var(--border);
+  color: var(--bar-fg);
   min-height: 64px;
   transition: background 0.25s ease;
 }
 .player-chapter { display: flex; flex-direction: column; min-width: 0; width: 200px; }
 .player-chapter-title {
-  font-size: 0.88rem; font-weight: 600; white-space: nowrap;
-  overflow: hidden; text-overflow: ellipsis;
+  font-size: 0.88rem; font-weight: 600; color: var(--bar-fg);
+  white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
   font-family: "Iowan Old Style", "Palatino Linotype", Palatino, Georgia, serif;
 }
-.player-time { font-size: 0.74rem; color: var(--text-dim); font-variant-numeric: tabular-nums; }
+.player-time { font-size: 0.74rem; color: var(--bar-fg-dim); font-variant-numeric: tabular-nums; }
 .player-controls { display: flex; align-items: center; gap: 4px; }
 .play-btn {
   width: 44px; height: 44px; border-radius: 50%; border: none;
-  background: var(--accent-strong); color: var(--on-accent); font-size: 1.1rem;
+  background: var(--btn-bg); color: var(--btn-fg); font-size: 1.1rem;
   cursor: pointer; display: flex; align-items: center; justify-content: center;
   transition: background 0.15s ease, transform 0.1s ease;
 }
-.play-btn:hover { background: var(--accent); }
+.play-btn:hover { filter: brightness(0.95); }
 .play-btn:active { transform: scale(0.95); }
 
 .seek {
@@ -154,10 +167,10 @@ body {
 }
 .seek::-webkit-slider-thumb {
   -webkit-appearance: none; width: 14px; height: 14px; border-radius: 50%;
-  background: var(--accent); border: none;
+  background: var(--btn-bg); border: none;
 }
 .seek::-moz-range-thumb {
-  width: 14px; height: 14px; border-radius: 50%; background: var(--accent); border: none;
+  width: 14px; height: 14px; border-radius: 50%; background: var(--btn-bg); border: none;
 }
 
 /* responsive */
