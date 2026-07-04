@@ -20,15 +20,18 @@ const THEMES = {
   },
 }
 
-function readerCss(theme) {
+function readerCss(theme, prefs) {
   const t = THEMES[theme] || THEMES.dark
+  const font = FONTS[prefs?.font] || FONTS.iowan
+  const size = prefs?.size ?? 19
+  const lh = prefs?.lineHeight ?? 1.7
   return `
     html, body {
       background: ${t.readerBg} !important;
       color: ${t.readerFg} !important;
-      font-family: ${READER_FONT} !important;
-      font-size: 19px !important;
-      line-height: 1.7 !important;
+      font-family: ${font.css} !important;
+      font-size: ${size}px !important;
+      line-height: ${lh} !important;
       -webkit-font-smoothing: antialiased;
     }
     body { max-width: 38em !important; margin: 0 auto !important; padding: 1em 1.2em !important; }
@@ -49,6 +52,62 @@ function initialTheme() {
     if (saved === 'dark' || saved === 'light') return saved
   } catch {}
   return window.matchMedia?.('(prefers-color-scheme: light)').matches ? 'light' : 'dark'
+}
+
+// Reader preferences persisted to localStorage. Defaults are tuned for a
+// comfortable book-reading experience on both light and dark themes.
+const PREFS_KEY = 'woodsman-prefs-v1'
+
+const FONTS = {
+  iowan: {
+    label: 'Iowan Old Style',
+    css: '"Iowan Old Style", "Palatino Linotype", Palatino, "Hoefler Text", Constantia, Georgia, serif',
+    note: 'Classic book serif',
+  },
+  lexend: {
+    label: 'Lexend',
+    css: '"Lexend", "Iowan Old Style", Georgia, serif',
+    note: 'Optimized for reading speed',
+  },
+  atkinson: {
+    label: 'Atkinson Hyperlegible',
+    css: '"Atkinson Hyperlegible", Verdana, sans-serif',
+    note: 'High-legibility (Braille Institute)',
+  },
+  opendyslexic: {
+    label: 'OpenDyslexic',
+    css: '"OpenDyslexic", "Iowan Old Style", serif',
+    note: 'Dyslexia-friendly',
+  },
+  georgia: {
+    label: 'Georgia',
+    css: 'Georgia, "Times New Roman", serif',
+    note: 'Friendly system serif',
+  },
+  serif: {
+    label: 'System serif',
+    css: 'Georgia, "Times New Roman", serif',
+    note: 'Native only',
+  },
+}
+
+const FLOW_OPTS = [
+  { id: 'scrolled', label: 'Scroll', note: 'Continuous, smooth' },
+  { id: 'paginated', label: 'Page', note: 'One page at a time' },
+]
+
+function loadPrefs() {
+  try {
+    const p = JSON.parse(localStorage.getItem(PREFS_KEY) || '{}')
+    return {
+      font: FONTS[p.font] ? p.font : 'iowan',
+      size: typeof p.size === 'number' && p.size >= 16 && p.size <= 32 ? p.size : 19,
+      flow: p.flow === 'paginated' ? 'paginated' : 'scrolled',
+      lineHeight: typeof p.lineHeight === 'number' && p.lineHeight >= 1.3 && p.lineHeight <= 2.2 ? p.lineHeight : 1.7,
+    }
+  } catch {
+    return { font: 'iowan', size: 19, flow: 'scrolled', lineHeight: 1.7 }
+  }
 }
 
 function fmt(sec) {
@@ -131,7 +190,10 @@ export default function App() {
   const [syncAvailable, setSyncAvailable] = useState(false)
   const [timings, setTimings] = useState(null)
   const [theme, setTheme] = useState(initialTheme)
+  const [prefs, setPrefs] = useState(loadPrefs)
+  const [showSettings, setShowSettings] = useState(false)
   const themeRef = useRef(theme)
+  const prefsRef = useRef(prefs)
 
   const viewRef = useRef(null)
   const audioRef = useRef(null)
@@ -152,12 +214,28 @@ export default function App() {
     themeRef.current = theme
     try { localStorage.setItem(THEME_KEY, theme) } catch {}
     document.documentElement.setAttribute('data-theme', theme)
-    // re-theme the EPUB content (foliate reapplies these styles on every chapter)
+    applyReaderCss()
+  }, [theme])
+
+  // Persist reader prefs + apply them to the EPUB iframe
+  useEffect(() => {
+    prefsRef.current = prefs
+    try { localStorage.setItem(PREFS_KEY, JSON.stringify(prefs)) } catch {}
+    // switch the renderer's flow mode live; foliate re-renders the section
+    const view = viewRef.current
+    if (view?.renderer?.setAttribute) {
+      try { view.renderer.setAttribute('flow', prefs.flow) } catch {}
+    }
+    applyReaderCss()
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [prefs])
+
+  function applyReaderCss() {
     const view = viewRef.current
     if (view?.renderer?.setStyles) {
-      try { view.renderer.setStyles(readerCss(theme)) } catch {}
+      try { view.renderer.setStyles(readerCss(themeRef.current, prefsRef.current)) } catch {}
     }
-  }, [theme])
+  }
 
   // ---- reading-progress persistence ----
   function saveProgress(idx, time) {
@@ -307,11 +385,30 @@ export default function App() {
       // continuous (scrolled) flow: one smooth native-scroll document per chapter
       // instead of paginated page-turns — no transition to jank, and getContents()
       // returns the whole chapter so the text map builds once per chapter.
-      try { view.renderer.setAttribute('flow', 'scrolled') } catch {}
+      try { view.renderer.setAttribute('flow', prefsRef.current.flow) } catch {}
+      // theme the reader's scroll container (it lives in the paginator's shadow
+      // root, so inject a stylesheet there to style its scrollbar per theme)
+      try {
+        const sr = view.renderer.shadowRoot
+        if (sr && !sr.getElementById('scrollbar-style')) {
+          const s = document.createElement('style')
+          s.id = 'scrollbar-style'
+          s.textContent = `
+            #container { scrollbar-width: thin; scrollbar-color: var(--scroll-thumb) var(--scroll-track); }
+            #container::-webkit-scrollbar { width: 12px; }
+            #container::-webkit-scrollbar-track { background: var(--scroll-track); }
+            #container::-webkit-scrollbar-thumb {
+              background: var(--scroll-thumb); border-radius: 6px;
+              border: 3px solid var(--scroll-track);
+            }
+          `
+          sr.appendChild(s)
+        }
+      } catch {}
       // foliate renders nothing until you navigate — trigger the first section
       await view.renderer.firstSection().catch(() => {})
       // theme the EPUB content (foliate stores + reapplies these on every chapter)
-      try { view.renderer.setStyles(readerCss(themeRef.current)) } catch {}
+      try { view.renderer.setStyles(readerCss(themeRef.current, prefsRef.current)) } catch {}
       // build cfi -> chapter id map. EPUB section hrefs are null here, so map by index:
       // 0=titlepage, 1=nav, 2=ch001 (empty placeholder), 3=ch002 (The Door)...
       if (view.book?.sections) {
@@ -480,7 +577,12 @@ export default function App() {
         <h1 className="book-title">{manifest.title}</h1>
         {syncAvailable && <span className="sync-badge" title="Word-level sync enabled">sync</span>}
         <span className="spacer" />
-        <button className="icon-btn theme-toggle" onClick={() => setTheme(t => t === 'dark' ? 'light' : 'dark')} aria-label="Toggle theme" title={`Switch to ${theme === 'dark' ? 'light' : 'dark'} mode`}>{theme === 'dark' ? '☀' : '☾'}</button>
+        <button className="icon-btn" onClick={() => setShowSettings(true)} aria-label="Settings" title="Settings">
+          <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+            <circle cx="12" cy="12" r="3" />
+            <path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 1 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 1 1-4 0v-.09a1.65 1.65 0 0 0-1-1.51 1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 1 1-2.83-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 1 1 0-4h.09a1.65 1.65 0 0 0 1.51-1 1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 1 1 2.83-2.83l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 1 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 1 1 2.83 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 1 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z" />
+          </svg>
+        </button>
       </header>
 
       <div className="main">
@@ -540,6 +642,136 @@ export default function App() {
         onPlay={() => setIsPlaying(true)}
         onPause={() => setIsPlaying(false)}
       />
+
+      {showSettings && (
+        <SettingsModal
+          theme={theme}
+          setTheme={setTheme}
+          prefs={prefs}
+          setPrefs={setPrefs}
+          onClose={() => setShowSettings(false)}
+        />
+      )}
+    </div>
+  )
+}
+
+function SettingsModal({ theme, setTheme, prefs, setPrefs, onClose }) {
+  // close on Esc; close on backdrop click
+  useEffect(() => {
+    const onKey = (e) => { if (e.key === 'Escape') onClose() }
+    document.addEventListener('keydown', onKey)
+    return () => document.removeEventListener('keydown', onKey)
+  }, [onClose])
+
+  const sizeStep = 1
+  const fontEntries = Object.entries(FONTS)
+  const flowEntries = FLOW_OPTS
+
+  return (
+    <div className="settings-backdrop" onClick={onClose} role="presentation">
+      <div className="settings" role="dialog" aria-label="Settings" onClick={(e) => e.stopPropagation()}>
+        <div className="settings-header">
+          <div className="settings-title">Settings</div>
+          <button className="settings-close" onClick={onClose} aria-label="Close">×</button>
+        </div>
+
+        <div className="settings-group">
+          <label className="settings-label">Theme</label>
+          <div className="option-row">
+            <button
+              className={`option-btn ${theme === 'dark' ? 'active' : ''}`}
+              onClick={() => setTheme('dark')}
+              aria-pressed={theme === 'dark'}
+            >
+              <span className="swatch" style={{ background: '#1E1E28' }} />
+              Dark
+            </button>
+            <button
+              className={`option-btn ${theme === 'light' ? 'active' : ''}`}
+              onClick={() => setTheme('light')}
+              aria-pressed={theme === 'light'}
+            >
+              <span className="swatch" style={{ background: '#C9C9D6', border: '1px solid #A1A1B8' }} />
+              Light
+            </button>
+          </div>
+        </div>
+
+        <div className="settings-group">
+          <label className="settings-label">Reading font</label>
+          <div className="option-row">
+            {fontEntries.map(([id, f]) => (
+              <button
+                key={id}
+                className={`option-btn ${prefs.font === id ? 'active' : ''}`}
+                onClick={() => setPrefs(p => ({ ...p, font: id }))}
+                aria-pressed={prefs.font === id}
+                title={f.note}
+                style={id !== 'serif' && id !== 'iowan' ? { fontFamily: f.css } : undefined}
+              >
+                <span className="font-sample" style={id !== 'serif' ? { fontFamily: f.css } : undefined}>Aa</span>
+                <span style={{ fontSize: '0.72rem' }}>{f.label}</span>
+              </button>
+            ))}
+          </div>
+        </div>
+
+        <div className="settings-group">
+          <label className="settings-label">Text size</label>
+          <div className="size-row">
+            <button
+              className="size-btn"
+              onClick={() => setPrefs(p => ({ ...p, size: Math.max(16, p.size - sizeStep) }))}
+              aria-label="Smaller text"
+            >−</button>
+            <div className="size-value">{prefs.size} px</div>
+            <button
+              className="size-btn"
+              onClick={() => setPrefs(p => ({ ...p, size: Math.min(32, p.size + sizeStep) }))}
+              aria-label="Larger text"
+            >+</button>
+          </div>
+        </div>
+
+        <div className="settings-group">
+          <label className="settings-label">Page turn style</label>
+          <div className="option-row">
+            {flowEntries.map((f) => (
+              <button
+                key={f.id}
+                className={`option-btn ${prefs.flow === f.id ? 'active' : ''}`}
+                onClick={() => setPrefs(p => ({ ...p, flow: f.id }))}
+                aria-pressed={prefs.flow === f.id}
+              >
+                <span style={{ fontWeight: 700 }}>{f.label}</span>
+                <span style={{ fontSize: '0.72rem', color: 'var(--text-dim)' }}>{f.note}</span>
+              </button>
+            ))}
+          </div>
+        </div>
+
+        <div className="settings-group">
+          <label className="settings-label">Line spacing</label>
+          <div className="size-row">
+            <button
+              className="size-btn"
+              onClick={() => setPrefs(p => ({ ...p, lineHeight: Math.max(1.3, Math.round((p.lineHeight - 0.1) * 10) / 10) }))}
+              aria-label="Tighter spacing"
+            >−</button>
+            <div className="size-value">{prefs.lineHeight.toFixed(1)}</div>
+            <button
+              className="size-btn"
+              onClick={() => setPrefs(p => ({ ...p, lineHeight: Math.min(2.2, Math.round((p.lineHeight + 0.1) * 10) / 10) }))}
+              aria-label="Looser spacing"
+            >+</button>
+          </div>
+        </div>
+
+        <div className="footnote">
+          Reading position and preferences are saved locally on this device.
+        </div>
+      </div>
     </div>
   )
 }

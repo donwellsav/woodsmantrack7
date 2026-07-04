@@ -1,5 +1,16 @@
+/* Readable book body type — multiple choices for the reading pane.
+   The current choice is injected as --reader-font on :root via a
+   data-reader-font attribute, and applied to the EPUB iframe via
+   setStyles(). Fonts are loaded on demand via @fontsource. */
+@import '@fontsource/lexend/400.css';
+@import '@fontsource/lexend/500.css';
+@import '@fontsource/lexend/600.css';
+@import '@fontsource/atkinson-hyperlegible/400.css';
+@import '@fontsource/atkinson-hyperlegible/700.css';
+@import '@fontsource/opendyslexic/400.css';
+@import '@fontsource/opendyslexic/700.css';
+
 /* ===== Theme tokens ===== */
-/* Dark: deep warm-charcoal neutrals from the ramp */
 :root,
 [data-theme='dark'] {
   --bg: #1E1E28;
@@ -22,8 +33,6 @@
   --shadow: 0 8px 28px rgba(0, 0, 0, 0.45);
 }
 
-/* Light: dusky lavender — chapter list #B3B3C5, reading surface #C9C9D6,
-   top/bottom bars #666686 (with light text) */
 [data-theme='light'] {
   --bg: #B3B3C5;
   --sidebar-bg: #B3B3C5;
@@ -67,7 +76,7 @@ body {
   height: 100vh; height: 100dvh;
 }
 
-/* topbar — uses --bar-bg with light --bar-fg text */
+/* topbar */
 .topbar {
   display: flex; align-items: center; gap: 12px;
   padding: 0 16px; height: 52px; min-height: 52px;
@@ -85,14 +94,13 @@ body {
   background: none; border: none; color: var(--bar-fg);
   font-size: 1.2rem; cursor: pointer; padding: 6px 8px; border-radius: 6px;
   transition: background 0.15s ease, color 0.15s ease;
+  display: inline-flex; align-items: center; justify-content: center;
 }
 .icon-btn:hover { background: rgba(255, 255, 255, 0.12); }
-.theme-toggle { font-size: 1.15rem; line-height: 1; }
+.icon-btn svg { display: block; }
 
-/* main area */
 .main { flex: 1; display: flex; min-height: 0; }
 
-/* sidebar / chapter list — uses --sidebar-bg with normal --text */
 .sidebar {
   width: 280px; min-width: 280px;
   background: var(--sidebar-bg); border-right: 1px solid var(--border);
@@ -133,14 +141,12 @@ body {
 }
 .badge.alt { background: var(--accent); color: var(--on-accent); }
 
-/* reader — uses --reader-bg */
 .reader {
   flex: 1; min-width: 0; background: var(--reader-bg); position: relative;
   transition: background 0.25s ease;
 }
 .foliate-view { width: 100%; height: 100%; display: block; }
 
-/* sync badge in topbar (sits on the dark bar) */
 .sync-badge {
   background: var(--accent); color: var(--bar-fg);
   font-size: 0.65rem; font-weight: 700; letter-spacing: 0.6px;
@@ -148,7 +154,6 @@ body {
   margin-left: 4px;
 }
 
-/* player — uses --bar-bg with light --bar-fg text */
 .player {
   display: flex; align-items: center; gap: 16px;
   padding: 10px 16px; padding-bottom: calc(10px + env(safe-area-inset-bottom));
@@ -186,7 +191,97 @@ body {
   width: 14px; height: 14px; border-radius: 50%; background: var(--btn-bg); border: none;
 }
 
-/* responsive */
+/* ===== Settings modal ===== */
+.settings-backdrop {
+  position: fixed; inset: 0; background: rgba(0,0,0,0.45);
+  z-index: 100; display: flex; align-items: center; justify-content: center;
+  padding: 16px;
+  animation: fade-in 0.15s ease;
+}
+@keyframes fade-in { from { opacity: 0; } to { opacity: 1; } }
+
+.settings {
+  background: var(--bg); color: var(--text);
+  border: 1px solid var(--border); border-radius: 12px;
+  width: min(440px, 100%); max-height: 90vh; overflow-y: auto;
+  box-shadow: var(--shadow);
+  padding: 20px 22px 24px;
+  scrollbar-width: thin;
+  scrollbar-color: var(--scroll-thumb) var(--scroll-track);
+}
+.settings::-webkit-scrollbar { width: 8px; }
+.settings::-webkit-scrollbar-track { background: var(--scroll-track); }
+.settings::-webkit-scrollbar-thumb {
+  background: var(--scroll-thumb); border-radius: 4px;
+  border: 2px solid var(--scroll-track);
+}
+
+.settings-header {
+  display: flex; align-items: center; justify-content: space-between;
+  margin-bottom: 18px;
+}
+.settings-title {
+  font-size: 1.1rem; font-weight: 700;
+  font-family: "Iowan Old Style", "Palatino Linotype", Palatino, Georgia, serif;
+}
+.settings-close {
+  background: none; border: none; color: var(--text-dim);
+  font-size: 1.4rem; cursor: pointer; padding: 4px 8px; line-height: 1;
+}
+.settings-close:hover { color: var(--text); }
+
+.settings-group { margin-bottom: 18px; }
+.settings-group:last-child { margin-bottom: 0; }
+.settings-label {
+  display: block; font-size: 0.72rem; font-weight: 700;
+  text-transform: uppercase; letter-spacing: 0.8px; color: var(--text-dim);
+  margin-bottom: 8px;
+}
+
+.option-row {
+  display: flex; gap: 6px; flex-wrap: wrap;
+  background: var(--bg-elev2); padding: 4px; border-radius: 8px;
+}
+.option-btn {
+  flex: 1; min-width: 0; padding: 8px 10px; border: none;
+  background: transparent; color: var(--text);
+  border-radius: 6px; cursor: pointer;
+  font-size: 0.85rem; font-weight: 500;
+  transition: background 0.15s ease, color 0.15s ease;
+  display: flex; flex-direction: column; align-items: center; gap: 4px;
+  text-align: center;
+}
+.option-btn:hover { background: rgba(255,255,255,0.06); }
+.option-btn.active {
+  background: var(--bar-bg); color: var(--bar-fg);
+  box-shadow: 0 1px 2px rgba(0,0,0,0.2);
+}
+.option-btn .swatch {
+  width: 22px; height: 22px; border-radius: 4px;
+  border: 1px solid var(--border);
+}
+.option-btn .font-sample {
+  font-size: 1.1rem; line-height: 1; padding: 2px 0;
+}
+
+.size-row { display: flex; align-items: center; gap: 12px; }
+.size-btn {
+  width: 36px; height: 36px; border-radius: 50%;
+  border: 1px solid var(--border); background: var(--bg-elev2);
+  color: var(--text); font-size: 1.1rem; font-weight: 700;
+  cursor: pointer; display: flex; align-items: center; justify-content: center;
+}
+.size-btn:hover { background: var(--bar-bg); color: var(--bar-fg); }
+.size-value {
+  flex: 1; text-align: center; font-size: 0.92rem;
+  color: var(--text-dim); font-variant-numeric: tabular-nums;
+}
+
+.footnote {
+  margin-top: 14px; padding-top: 14px; border-top: 1px solid var(--border);
+  font-size: 0.74rem; color: var(--text-dim); line-height: 1.5;
+}
+
 @media (max-width: 720px) {
   .sidebar { position: absolute; z-index: 10; height: calc(100% - 52px); box-shadow: var(--shadow); }
   .player-chapter { width: 130px; }
