@@ -257,3 +257,27 @@ body {
   .sidebar { position: absolute; z-index: 10; height: calc(100% - 52px); box-shadow: var(--shadow); }
   .player-chapter { width: 130px; }
 }
+/* PERF-7: PWA update prompt toast. Surfaced when vite-plugin-pwa detects a
+   waiting SW (new bundle deployed). Stays out of the way until the user
+   chooses to reload at a natural break. */
+.sw-update-toast {
+  position: fixed; bottom: 88px; right: 16px;
+  background: var(--bar-bg, #1E1E28); color: var(--text, #EDEDF1);
+  border: 1px solid var(--accent, #A1A1B8);
+  padding: 10px 12px; display: flex; align-items: center; gap: 10px;
+  font-size: 0.85rem; z-index: 50; max-width: 320px;
+}
+.sw-update-btn {
+  background: var(--accent, #A1A1B8); color: var(--bar-bg, #1E1E28);
+  border: none; padding: 6px 12px; cursor: pointer; font-weight: 600;
+}
+.sw-update-btn:hover { filter: brightness(1.1); }
+.sw-update-dismiss {
+  background: none; border: none; color: var(--text-dim, #A1A1B8);
+  cursor: pointer; padding: 6px 8px;
+}
+.sw-update-dismiss:hover { color: var(--text, #EDEDF1); }
+
+@media (max-width: 720px) {
+  .sw-update-toast { left: 16px; right: 16px; max-width: none; }
+}
