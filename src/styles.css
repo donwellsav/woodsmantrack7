@@ -17,6 +17,8 @@
   --border: #2C2C3A;
   --reader-bg: #21212C;
   --warn: #9696AF;
+  --scroll-track: #1E1E28;
+  --scroll-thumb: #424257;
   --shadow: 0 8px 28px rgba(0, 0, 0, 0.45);
 }
 
@@ -38,6 +40,8 @@
   --border: #A1A1B8;
   --reader-bg: #C9C9D6;
   --warn: #48485E;
+  --scroll-track: #B3B3C5;
+  --scroll-thumb: #8787A4;
   --shadow: 0 8px 24px rgba(30, 30, 40, 0.18);
 }
 
@@ -94,7 +98,16 @@ body {
   background: var(--sidebar-bg); border-right: 1px solid var(--border);
   overflow-y: auto; transition: margin-left 0.2s, background 0.25s;
   color: var(--text);
+  scrollbar-width: thin;
+  scrollbar-color: var(--scroll-thumb) var(--scroll-track);
 }
+.sidebar::-webkit-scrollbar { width: 10px; }
+.sidebar::-webkit-scrollbar-track { background: var(--scroll-track); }
+.sidebar::-webkit-scrollbar-thumb {
+  background: var(--scroll-thumb); border-radius: 5px;
+  border: 2px solid var(--scroll-track);
+}
+.sidebar::-webkit-scrollbar-thumb:hover { background: var(--accent); }
 .sidebar.closed { margin-left: -280px; }
 .sidebar-header {
   padding: 14px 16px 8px; font-size: 0.72rem; font-weight: 700;
