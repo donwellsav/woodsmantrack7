@@ -283,12 +283,16 @@ export default function App() {
       combined += tm.fullText + '\n'
       combinedMap.push(...tm.posMap)
     }
-    // foliate may fire 'relocate' before the section's body is fully populated;
-    // if the captured text is too short, retry shortly.
+    // foliate may fire 'load' before the section's body is fully populated;
+    // if the captured text is too short, retry shortly (but cap retries so
+    // genuinely short chapters — e.g. title-only — don't loop forever).
     if (combined.length < 200) {
-      setTimeout(buildSectionTextMap, 200)
+      const n = (buildSectionTextMap._retries || 0) + 1
+      buildSectionTextMap._retries = n
+      if (n <= 10) setTimeout(buildSectionTextMap, 200)
       return
     }
+    buildSectionTextMap._retries = 0
     textMapRef.current = { fullText: combined, posMap: combinedMap }
     mapWordsToDOM()
   }
@@ -300,6 +304,10 @@ export default function App() {
       const blob = await res.blob()
       const file = new File([blob], 'book.epub', { type: blob.type || 'application/epub+zip' })
       await view.open(file)
+      // continuous (scrolled) flow: one smooth native-scroll document per chapter
+      // instead of paginated page-turns — no transition to jank, and getContents()
+      // returns the whole chapter so the text map builds once per chapter.
+      try { view.renderer.setAttribute('flow', 'scrolled') } catch {}
       // foliate renders nothing until you navigate — trigger the first section
       await view.renderer.firstSection().catch(() => {})
       // theme the EPUB content (foliate stores + reapplies these on every chapter)
@@ -315,8 +323,8 @@ export default function App() {
         }
       }
       foliateReady.current = true
-      view.addEventListener('relocate', () => buildSectionTextMap())
-      view.addEventListener('create-overlayer', () => buildSectionTextMap())
+      // Rebuild the text map only when a section (chapter) loads — NOT on every
+      // relocate/page-change, which would block the animation frame and stutter.
       view.addEventListener('load', () => buildSectionTextMap())
       buildSectionTextMap()
       if (pendingNav.current) {
