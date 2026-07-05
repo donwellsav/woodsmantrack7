@@ -52,9 +52,8 @@ export function loadPrefs() {
       size: typeof p.size === 'number' && p.size >= 16 && p.size <= 32 ? p.size : 19,
       flow: p.flow === 'paginated' ? 'paginated' : 'scrolled',
       lineHeight: typeof p.lineHeight === 'number' && p.lineHeight >= 1.3 && p.lineHeight <= 2.2 ? p.lineHeight : 1.7,
-      clickToSeek: p.clickToSeek === true,
     }
   } catch {
-    return { font: 'iowan', size: 19, flow: 'scrolled', lineHeight: 1.7, clickToSeek: false }
+    return { font: 'iowan', size: 19, flow: 'scrolled', lineHeight: 1.7 }
   }
 }

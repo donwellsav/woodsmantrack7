@@ -76,22 +76,6 @@ export default function SettingsPanel({ theme, setTheme, prefs, setPrefs }) {
             >{f.label}</button>
           ))}
         </div>
-
-      <div className="settings-group">
-        <label className="settings-label">Click to seek</label>
-        <div className="option-row">
-          <button
-            className={`option-btn ${!prefs.clickToSeek ? 'active' : ''}`}
-            onClick={() => setPrefs(p => ({ ...p, clickToSeek: false }))}
-            aria-pressed={!prefs.clickToSeek}
-          >Off</button>
-          <button
-            className={`option-btn ${prefs.clickToSeek ? 'active' : ''}`}
-            onClick={() => setPrefs(p => ({ ...p, clickToSeek: true }))}
-            aria-pressed={prefs.clickToSeek}
-          >On</button>
-        </div>
-      </div>
       </div>
     </div>
   )
