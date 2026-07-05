@@ -190,9 +190,6 @@ export default function App() {
   const viewRef = useRef(null)
   const audioRef = useRef(null)
   const foliateReady = useRef(false)
-  // Paginated mode: latch that prevents re-triggering a page-turn while
-  // foliate is mid-render. Reset on the foliate 'load' event.
-  const lastPageTurnRef = useRef(0)
   // CQ-5: state mirror of foliateReady so the chapter-nav effect re-runs when
   // foliate finishes opening, instead of relying on a pendingNav ref that
   // captures the first clicked chapter and may be stale by the time open
@@ -642,17 +639,8 @@ export default function App() {
       if (loadHandlerRef.current) {
         try { view.removeEventListener('load', loadHandlerRef.current) } catch {}
       }
-      loadHandlerRef.current = () => {
-        // Reset the page-turn latch — the new page is now the current page.
-        lastPageTurnRef.current = 0
-        buildSectionTextMap()
-        enforceSingleColumn()
-      }
+      loadHandlerRef.current = () => { buildSectionTextMap(); enforceSingleColumn() }
       view.addEventListener('load', loadHandlerRef.current)
-      // foliate emits 'relocate' on every page navigation. Reset the
-      // page-turn latch here too (the 'load' handler may not fire on
-      // every navigate for paginated mode).
-      view.addEventListener('relocate', loadHandlerRef.current)
       buildSectionTextMap()
       if (pendingNav.current) {
         const idx = sectionIndexMapRef.current[pendingNav.current]
@@ -793,28 +781,16 @@ export default function App() {
       if (targetSent !== lastWordIdxRef.current) {
         lastWordIdxRef.current = targetSent
         highlightWord(target)
+        // Paginated mode: when a new sentence begins, advance to the next
+        // page so the reader always shows the current sentence. Foliate's
+        // paginator handles the page swap (no scroll); buildSectionTextMap
+        // re-runs on the foliate 'load' event to refresh word spans.
+        if (prefsRef.current.flow === 'paginated') {
+          const r = viewRef.current?.renderer
+          if (r && typeof r.next === 'function') r.next().catch(() => {})
+        }
       }
     })
-    // Paginated mode: detect page-finished (audio past last word on the
-    // current page) and advance to the next page. Fires ONCE per page,
-    // not per sentence. The lastPageTurnRef latch is reset by the
-    // foliate 'load' event so the next page can advance when done.
-    //
-    // wordSpans for the CURRENT page's words are non-null; words on
-    // other pages are null. The last non-null word's end time is the
-    // end of the visible page. If the audio is past it, the page is done.
-    if (prefsRef.current.flow === 'paginated' && !lastPageTurnRef.current) {
-      const ws = wordSpansRef.current
-      let lastEnd = -1
-      for (let i = ws.length - 1; i >= 0; i--) {
-        if (ws[i]?.node) { lastEnd = ws[i].start + ws[i].length; break }
-      }
-      if (lastEnd > 0 && a.currentTime >= lastEnd - 0.05) {
-        lastPageTurnRef.current = 1
-        const r = viewRef.current?.renderer
-        if (r && typeof r.next === 'function') r.next().catch(() => {})
-      }
-    }
   }
   const onLoadedMeta = () => setDuration(audioRef.current?.duration || 0)
   const advancingRef = useRef(false)
