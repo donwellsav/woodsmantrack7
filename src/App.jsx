@@ -14,18 +14,16 @@ const SAVE_INTERVAL_MS = 3000 // throttle audio-position saves
 const READER_FONT = '"Iowan Old Style", "Palatino Linotype", Palatino, "Hoefler Text", Constantia, Georgia, serif'
 const THEMES = {
   dark: {
-    // A11Y-10: hl alpha bumped from 0.30 to 0.55. The previous value
-    // produced an effective band color of #474756 against the reader bg
-    // — only 1.75:1 contrast, well below WCAG 1.4.11's 3:1 minimum for
-    // non-text contrast. At 0.55 the effective color is ~#72728A (~3.4:1).
-    readerBg: '#21212C', readerFg: '#EDEDF1', accent: '#A1A1B8', hl: 'rgba(161,161,184,0.55)',
+    // Deeper background (#181820 vs old #21212C) so the highlight glow
+    // stands out more. Highlight is now a solid translucent fill + a
+    // glowing box-shadow border in the accent color.
+    readerBg: '#181820', readerFg: '#EDEDF1', accent: '#A1A1B8', hl: 'rgba(161,161,184,0.35)',
+    glow: 'rgba(180,180,210,0.6)',
     link: '#B3B3C5',
   },
   light: {
-    // A11Y-10: hl alpha bumped from 0.22 to 0.45. Previous effective band
-    // #AFAFBE was 1.32:1 against the reader bg. At 0.45 the effective
-    // color is ~#8E8EA0 (~3.1:1).
-    readerBg: '#C9C9D6', readerFg: '#2C2C3A', accent: '#53536D', hl: 'rgba(83,83,109,0.45)',
+    readerBg: '#BFC0CE', readerFg: '#2C2C3A', accent: '#53536D', hl: 'rgba(83,83,109,0.30)',
+    glow: 'rgba(83,83,109,0.5)',
     link: '#424257',
   },
 }
@@ -69,8 +67,10 @@ function readerCss(theme, prefs) {
     h1, h2, h3 { line-height: 1.3 !important; color: ${t.readerFg} !important; }
     a, a:link { color: ${t.link} !important; }
     mark.word-hl {
-      background: linear-gradient(transparent 58%, ${t.hl} 58%) !important;
+      background: ${t.hl} !important;
       color: inherit !important;
+      box-shadow: 0 0 6px 1px ${t.glow}, 0 0 2px 0 ${t.glow} inset !important;
+      border-radius: 2px !important;
     }
   `
 }
