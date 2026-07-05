@@ -179,7 +179,7 @@ export default function App() {
   const swUpdateRef = useRef(null)
   const [manifestLoadError, setManifestLoadError] = useState(null)  // CQ-11
   const [sidebarOpen, setSidebarOpen] = useState(true)
-  const [syncAvailable, setSyncAvailable] = useState(false)
+  // (syncAvailable removed — sync badge is no longer shown)
   const [timings, setTimings] = useState(null)
   const [theme, setTheme] = useState(initialTheme)
   const [prefs, setPrefs] = useState(loadPrefs)
@@ -356,7 +356,6 @@ export default function App() {
   // ---- load timings for current chapter ----
   useEffect(() => {
     setTimings(null)
-    setSyncAvailable(false)
     wordSpansRef.current = []
     lastWordIdxRef.current = -1
     // CQ-4: reset the retry counter so chapter A's pending retries can't
@@ -455,7 +454,6 @@ export default function App() {
     // CQ-8: bail if a chapter navigation happened during the build.
     if (gen !== chapterGenRef.current) return
     wordSpansRef.current = spans
-    setSyncAvailable(spans.some(s => s !== null))
   }
 
   // ---- build a flat text map for the current foliate-view section ----
@@ -1060,7 +1058,6 @@ export default function App() {
           </svg>
         </button>
         <h1 className="book-title">{manifest.title}</h1>
-        {syncAvailable && <span className="sync-badge" role="status" aria-label="Word-level sync enabled" title="Word-level sync enabled">sync</span>}
         <span className="spacer" />
       </header>
 
