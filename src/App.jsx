@@ -1,5 +1,7 @@
 import { useEffect, useRef, useState, useCallback } from 'react'
 import ErrorBoundary from './ErrorBoundary.jsx'
+import SettingsPanel from './SettingsPanel.jsx'
+import { FONTS, FLOW_OPTS, loadPrefs } from './prefs.js'
 
 const EPUB_URL = '/book.epub'
 const MANIFEST_URL = '/chapters.json'
@@ -78,58 +80,6 @@ function initialTheme() {
 // comfortable book-reading experience on both light and dark themes.
 const PREFS_KEY = 'woodsman-prefs-v1'
 
-const FONTS = {
-  iowan: {
-    label: 'Iowan Old Style',
-    css: '"Iowan Old Style", "Palatino Linotype", Palatino, "Hoefler Text", Constantia, Georgia, serif',
-    note: 'Classic book serif',
-  },
-  lexend: {
-    label: 'Lexend',
-    css: '"Lexend", "Iowan Old Style", Georgia, serif',
-    note: 'Optimized for reading speed',
-  },
-  atkinson: {
-    label: 'Atkinson Hyperlegible',
-    css: '"Atkinson Hyperlegible", Verdana, sans-serif',
-    note: 'High-legibility (Braille Institute)',
-  },
-  opendyslexic: {
-    label: 'OpenDyslexic',
-    css: '"OpenDyslexic", "Iowan Old Style", serif',
-    note: 'Dyslexia-friendly',
-  },
-  georgia: {
-    label: 'Georgia',
-    css: 'Georgia, "Times New Roman", serif',
-    note: 'Friendly system serif',
-  },
-  serif: {
-    label: 'System serif',
-    css: 'Georgia, "Times New Roman", serif',
-    note: 'Native only',
-  },
-}
-
-const FLOW_OPTS = [
-  { id: 'scrolled', label: 'Scroll', note: 'Continuous, smooth' },
-  { id: 'paginated', label: 'Page', note: 'One page at a time' },
-]
-
-function loadPrefs() {
-  try {
-    const p = JSON.parse(localStorage.getItem(PREFS_KEY) || '{}')
-    return {
-      font: FONTS[p.font] ? p.font : 'iowan',
-      size: typeof p.size === 'number' && p.size >= 16 && p.size <= 32 ? p.size : 19,
-      flow: p.flow === 'paginated' ? 'paginated' : 'scrolled',
-      lineHeight: typeof p.lineHeight === 'number' && p.lineHeight >= 1.3 && p.lineHeight <= 2.2 ? p.lineHeight : 1.7,
-    }
-  } catch {
-    return { font: 'iowan', size: 19, flow: 'scrolled', lineHeight: 1.7 }
-  }
-}
-
 function fmt(sec) {
   if (!sec || !isFinite(sec)) return '0:00'
   const m = Math.floor(sec / 60)
@@ -202,6 +152,11 @@ function buildTextMap(doc) {
 export default function App() {
   const [manifest, setManifest] = useState(null)
   const [currentIndex, setCurrentIndex] = useState(0)
+  // CQ-16: mirror so applySeek (which fires async on loadedmetadata) reads the
+  // current chapter index, not the one captured at the render that scheduled
+  // the listener.
+  const currentIndexRef = useRef(0)
+  useEffect(() => { currentIndexRef.current = currentIndex }, [currentIndex])
   const [isPlaying, setIsPlaying] = useState(false)
   const [currentTime, setCurrentTime] = useState(0)
   const [duration, setDuration] = useState(0)
@@ -224,6 +179,11 @@ export default function App() {
   const viewRef = useRef(null)
   const audioRef = useRef(null)
   const foliateReady = useRef(false)
+  // CQ-5: state mirror of foliateReady so the chapter-nav effect re-runs when
+  // foliate finishes opening, instead of relying on a pendingNav ref that
+  // captures the first clicked chapter and may be stale by the time open
+  // resolves.
+  const [foliateReadyFlag, setFoliateReadyFlag] = useState(false)
   const pendingNav = useRef(null)
   const timingsCache = useRef({})
   const timingsRef = useRef(null)         // mirror of timings state for event handlers
@@ -239,8 +199,10 @@ export default function App() {
   const lastSaveRef = useRef(0)            // throttle timestamp for progress saves
   const rafIdxRef = useRef(-1)            // PERF-5: pending rAF word index (-1 = no scheduled frame)
   const rafHandleRef = useRef(0)          // PERF-5: handle of the in-flight rAF so we can cancel on unmount
+  const chapterGenRef = useRef(0)         // CQ-8: increments on chapter change; mapWordsToDOM / highlightWord bail if the gen they were called with is stale
   const lastScrollRef = useRef(0)         // PERF-5: throttle timestamp for scrollIntoView
   const cssDebounceRef = useRef(0)        // PERF-6: debounce timer handle for applyReaderCss
+  const cssRafRef = useRef(0)             // CQ-10: rAF handle for enforceSingleColumn so rapid applyReaderCss calls don't pile up frames
   const isScrubbingRef = useRef(false)    // PERF-9: true while the user is dragging the seek slider
   const epubPromiseRef = useRef(null)     // PERF-10: preloaded EPUB Blob promise (parallel with manifest fetch)
 
@@ -276,8 +238,14 @@ export default function App() {
       if (view?.renderer?.setStyles) {
         try { view.renderer.setStyles(readerCss(themeRef.current, prefsRef.current)) } catch {}
       }
-      // re-pin single-column on the next frame (setStyles re-applies the epub CSS)
-      requestAnimationFrame(() => { try { enforceSingleColumn() } catch {} })
+      // re-pin single-column on the next frame (setStyles re-applies the epub CSS).
+      // CQ-10: cancel any pending rAF so rapid applyReaderCss calls don't
+      // accumulate in-flight frames.
+      if (cssRafRef.current) cancelAnimationFrame(cssRafRef.current)
+      cssRafRef.current = requestAnimationFrame(() => {
+        cssRafRef.current = 0
+        try { enforceSingleColumn() } catch {}
+      })
     }, 100)
   }
 
@@ -291,12 +259,8 @@ export default function App() {
       }))
     } catch {}
   }
-  // persist the active chapter whenever it changes (fresh start; accurate
-  // position is persisted by the throttled save in onTimeUpdate)
-  useEffect(() => {
-    if (manifest && chapter) saveProgress(currentIndex, 0)
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [currentIndex])
+
+  // ---- reading-progress persistence (continued below after `chapter` decl) ----
 
   // persist on hide/unload so the last few seconds aren't lost
   useEffect(() => {
@@ -352,6 +316,16 @@ export default function App() {
 
   const chapter = manifest?.chapters[currentIndex]
 
+  // persist the active chapter whenever it changes (fresh start; accurate
+  // position is persisted by the throttled save in onTimeUpdate).
+  // CQ-6: include `manifest` + `chapter` in deps so the first render after
+  // manifest lands doesn't read a stale closure. The effect MUST be declared
+  // after `const chapter` (above) to avoid the TDZ — Vite 7 / strict-mode
+  // caught what Vite 5 silently allowed.
+  useEffect(() => {
+    if (manifest && chapter) saveProgress(currentIndex, 0)
+  }, [currentIndex, manifest, chapter])
+
   // A11Y-12: Esc closes the settings panel; the old SettingsModal had this
   // and the inline-panel refactor lost it. Restores keyboard parity.
   useEffect(() => {
@@ -370,6 +344,9 @@ export default function App() {
     // CQ-4: reset the retry counter so chapter A's pending retries can't
     // fire after chapter B's section loads.
     textMapRetriesRef.current = 0
+    // CQ-8: bump the chapter-generation token so any in-flight mapWordsToDOM
+    // from the previous chapter bails before mutating wordSpansRef.
+    chapterGenRef.current++
     // CQ-3: clear any pending applySeek listener from the previous chapter
     // so a slow loadedmetadata can't reset this chapter's audio.currentTime.
     if (applySeekRef.current) {
@@ -428,7 +405,10 @@ export default function App() {
   }, [timings])
 
   // ---- map timings.words -> DOM positions ----
+  // CQ-8: capture the chapter-generation token at entry; bail if it changed
+  // mid-build (chapter navigation while async textMap is resolving).
   function mapWordsToDOM() {
+    const gen = chapterGenRef.current
     const tm = textMapRef.current
     const t = timingsRef.current || timings
     if (!tm || !t || !t.words || !t.words.length) {
@@ -454,6 +434,8 @@ export default function App() {
       })
       scanFrom = idx + len
     }
+    // CQ-8: bail if a chapter navigation happened during the build.
+    if (gen !== chapterGenRef.current) return
     wordSpansRef.current = spans
     setSyncAvailable(spans.some(s => s !== null))
   }
@@ -522,6 +504,10 @@ export default function App() {
   // ---- open foliate-view (callback ref so it runs after the element is attached) ----
   async function openFoliateView(view) {
     try {
+      // CQ-23: clear any stale section-index map from a previous open attempt
+      // so a re-init (StrictMode double-invoke, ErrorBoundary retry) doesn't
+      // carry forward mappings from a different EPUB instance.
+      sectionIndexMapRef.current = {}
       // PERF-10: consume the preloaded EPUB blob (kicked off alongside the
       // manifest fetch). Falls back to a fresh fetch if the preload failed.
       let blob = epubPromiseRef.current ? await epubPromiseRef.current : null
@@ -571,6 +557,11 @@ export default function App() {
         })
       }
       foliateReady.current = true
+      // CQ-5: bump the state flag so the chapter-nav effect re-runs and any
+      // chapter the user clicked during foliate's open resolves against the
+      // LATEST chapter.id (not whatever was captured in pendingNav when they
+      // first clicked).
+      setFoliateReadyFlag(true)
       // Rebuild the text map only when a section (chapter) loads — NOT on every
       // relocate/page-change, which would block the animation frame and stutter.
       // CQ-7: store the handler in a ref so a re-init (StrictMode double-invoke,
@@ -603,6 +594,7 @@ export default function App() {
         try { view.removeEventListener('load', loadHandlerRef.current) } catch {}
       }
       if (rafHandleRef.current) cancelAnimationFrame(rafHandleRef.current)
+      if (cssRafRef.current) cancelAnimationFrame(cssRafRef.current)
       if (cssDebounceRef.current) clearTimeout(cssDebounceRef.current)
     }
   }, [])
@@ -616,6 +608,10 @@ export default function App() {
   }, [])
 
   // ---- navigate reader when chapter changes ----
+  // CQ-5: depend on foliateReadyFlag (state) so the effect re-runs once foliate
+  // finishes opening. The previous code only depended on [chapter] + read the
+  // ref, so when foliate became ready mid-mount the effect never re-ran and the
+  // chapter the user clicked before open resolved was lost.
   useEffect(() => {
     const view = viewRef.current
     if (!chapter || !view) return
@@ -630,7 +626,7 @@ export default function App() {
     // derived from each section's id.
     const idx = sectionIndexMapRef.current[chapter.id]
     if (typeof idx === 'number') view.renderer.goTo({ index: idx }).catch(() => {})
-  }, [chapter])
+  }, [chapter, foliateReadyFlag])
 
   // ---- load audio when chapter changes ----
   useEffect(() => {
@@ -651,7 +647,13 @@ export default function App() {
       const applySeek = () => {
         audio.currentTime = seekTarget
         setCurrentTime(seekTarget)
-        saveProgress(currentIndex, seekTarget) // re-persist the restored position
+        // CQ-16: read from ref so a slow loadedmetadata can't save the wrong
+        // chapter's progress.
+        saveProgress(currentIndexRef.current, seekTarget)
+        // CQ-21: bump the throttle so the next onTimeUpdate doesn't immediately
+        // fire another save (and potentially race with the chapter-load effect's
+        // saveProgress(currentIndex, 0)).
+        lastSaveRef.current = Date.now()
         audio.removeEventListener('loadedmetadata', applySeek)
         applySeekRef.current = null
       }
@@ -756,12 +758,19 @@ export default function App() {
   const togglePlay = () => {
     const audio = audioRef.current
     if (!audio) return
-    if (audio.paused) { audio.play(); setIsPlaying(true) }
-    else { audio.pause(); setIsPlaying(false) }
+    // SMOKE-2 / CQ-28: don't setIsPlaying here — let the <audio> element's
+    // onPlay/onPause handlers do it. The previous optimistic setState caused
+    // a one-frame label flicker because the audio event fires asynchronously
+    // after the React state update.
+    if (audio.paused) { audio.play().catch(() => {}) }
+    else { audio.pause() }
   }
   const selectChapter = useCallback((idx) => setCurrentIndex(idx), [])
-  const next = () => setCurrentIndex(i => Math.min(i + 1, (manifest?.chapters.length || 1) - 1))
-  const prev = () => setCurrentIndex(i => Math.max(i - 1, 0))
+  // CQ-15: memoize next/prev with useCallback so they don't re-allocate every
+  // render. The Media Session effect (and any other consumer) gets stable
+  // references.
+  const next = useCallback(() => setCurrentIndex(i => Math.min(i + 1, (manifest?.chapters.length || 1) - 1)), [manifest])
+  const prev = useCallback(() => setCurrentIndex(i => Math.max(i - 1, 0)), [])
 
   // ---- Media Session API (lock screen metadata + controls) ----
   useEffect(() => {
@@ -775,6 +784,34 @@ export default function App() {
     navigator.mediaSession.setActionHandler('pause', () => togglePlay())
     navigator.mediaSession.setActionHandler('previoustrack', prev)
     navigator.mediaSession.setActionHandler('nexttrack', next)
+    // A11Y-15: lock-screen scrub bar + chapter-position context. Update once
+    // per chapter change; the throttled onTimeUpdate handles finer-grained
+    // position updates below.
+    try {
+      navigator.mediaSession.setPositionState({
+        duration: chapter.duration || audioRef.current?.duration || 0,
+        playbackRate: audioRef.current?.playbackRate || 1,
+        position: Math.min(currentTime, chapter.duration || audioRef.current?.duration || 0),
+      })
+    } catch { /* setPositionState throws if position > duration; ignore */ }
+  }, [chapter])
+
+  // A11Y-15: throttled position update (~1Hz) so the lock-screen progress bar
+  // advances without spamming the OS media framework.
+  useEffect(() => {
+    if (!chapter || !('mediaSession' in navigator) || !('setPositionState' in navigator.mediaSession)) return
+    const id = setInterval(() => {
+      const audio = audioRef.current
+      if (!audio || audio.paused) return
+      try {
+        navigator.mediaSession.setPositionState({
+          duration: audio.duration || 0,
+          playbackRate: audio.playbackRate || 1,
+          position: Math.min(audio.currentTime, audio.duration || 0),
+        })
+      } catch {}
+    }, 1000)
+    return () => clearInterval(id)
   }, [chapter])
 
   // ---- PERF-7: PWA update prompt ----
@@ -820,11 +857,17 @@ export default function App() {
 
   return (
     <div className="app">
+      {/* A11Y-23: visually-hidden aria-live region so screen readers announce
+          chapter changes. The visible player-time div updates ~4x/sec and
+          would spam AT if it were the live region. */}
+      <div className="visually-hidden" role="status" aria-live="polite">
+        {chapter ? `Now playing: ${chapter.title}` : ''}
+      </div>
       {/* A11Y-13: skip link so keyboard users can bypass the sidebar + topbar
           and land in the reader. Visually hidden until focused. */}
       <a href="#main-reader" className="skip-link">Skip to reader</a>
       <header className="topbar">
-        <button className="icon-btn" onClick={() => setSidebarOpen(o => !o)} aria-label="Toggle chapters">☰</button>
+        <button className="icon-btn" onClick={() => setSidebarOpen(o => !o)} aria-label={sidebarOpen ? 'Hide chapters' : 'Show chapters'} aria-pressed={sidebarOpen}>☰</button>
         <h1 className="book-title">{manifest.title}</h1>
         {/* A11Y-06: screen-reader-friendly label + role=status so the badge
             announces when sync activates between chapters. */}
@@ -896,7 +939,7 @@ export default function App() {
         </div>
         <div className="player-controls">
           <button className="icon-btn" onClick={prev} aria-label="Previous chapter">⏮</button>
-          <button className="play-btn" onClick={togglePlay} aria-label={isPlaying ? 'Pause' : 'Play'}>
+          <button className="play-btn" onClick={togglePlay} aria-label={isPlaying ? 'Pause' : 'Play'} aria-pressed={isPlaying}>
             {isPlaying ? '⏸' : '▶'}
           </button>
           <button className="icon-btn" onClick={next} aria-label="Next chapter">⏭</button>
@@ -937,6 +980,7 @@ export default function App() {
         onEnded={onEnded}
         onPlay={() => setIsPlaying(true)}
         onPause={() => setIsPlaying(false)}
+        aria-hidden="true"
       />
 
       {updateAvailable && (
@@ -958,82 +1002,3 @@ export default function App() {
   )
 }
 
-// Inline settings panel — replaces the chapter list when the gear is active.
-// Sits in the same sidebar so no modal/overlay disrupts the layout.
-function SettingsPanel({ theme, setTheme, prefs, setPrefs }) {
-  const fontEntries = Object.entries(FONTS)
-  const flowEntries = FLOW_OPTS
-  return (
-    // A11Y-04: id matches the gear's aria-controls; role=region + aria-labelledby
-    // give the panel a landmark AT can find.
-    <div className="settings-panel" id="settings-panel" role="region" aria-labelledby="settings-heading">
-      <h2 id="settings-heading" className="visually-hidden">Reading settings</h2>
-      <div className="settings-group">
-        <label className="settings-label">Theme</label>
-        <div className="option-row">
-          <button
-            className={`option-btn ${theme === 'dark' ? 'active' : ''}`}
-            onClick={() => setTheme('dark')}
-            aria-pressed={theme === 'dark'}
-          >Dark</button>
-          <button
-            className={`option-btn ${theme === 'light' ? 'active' : ''}`}
-            onClick={() => setTheme('light')}
-            aria-pressed={theme === 'light'}
-          >Light</button>
-        </div>
-      </div>
-
-      <div className="settings-group">
-        <label className="settings-label">Font</label>
-        <div className="font-list">
-          {fontEntries.map(([id, f]) => (
-            <button
-              key={id}
-              className={`font-item ${prefs.font === id ? 'active' : ''}`}
-              onClick={() => setPrefs(p => ({ ...p, font: id }))}
-              aria-pressed={prefs.font === id}
-              title={f.note}
-            >
-              <span className="font-sample" style={{ fontFamily: f.css }}>Aa</span>
-              <span className="font-name" style={{ fontFamily: f.css }}>{f.label}</span>
-              <span className="font-note">{f.note}</span>
-            </button>
-          ))}
-        </div>
-      </div>
-
-      <div className="settings-group">
-        <label className="settings-label">Size</label>
-        <div className="size-row">
-          <button className="size-btn" onClick={() => setPrefs(p => ({ ...p, size: Math.max(16, p.size - 1) }))} aria-label="Decrease text size">−</button>
-          <div className="size-value">{prefs.size} px</div>
-          <button className="size-btn" onClick={() => setPrefs(p => ({ ...p, size: Math.min(32, p.size + 1) }))} aria-label="Increase text size">+</button>
-        </div>
-      </div>
-
-      <div className="settings-group">
-        <label className="settings-label">Spacing</label>
-        <div className="size-row">
-          <button className="size-btn" onClick={() => setPrefs(p => ({ ...p, lineHeight: Math.max(1.3, Math.round((p.lineHeight - 0.1) * 10) / 10) }))} aria-label="Decrease line spacing">−</button>
-          <div className="size-value">{prefs.lineHeight.toFixed(1)}</div>
-          <button className="size-btn" onClick={() => setPrefs(p => ({ ...p, lineHeight: Math.min(2.2, Math.round((p.lineHeight + 0.1) * 10) / 10) }))} aria-label="Increase line spacing">+</button>
-        </div>
-      </div>
-
-      <div className="settings-group">
-        <label className="settings-label">Page</label>
-        <div className="option-row">
-          {flowEntries.map((f) => (
-            <button
-              key={f.id}
-              className={`option-btn ${prefs.flow === f.id ? 'active' : ''}`}
-              onClick={() => setPrefs(p => ({ ...p, flow: f.id }))}
-              aria-pressed={prefs.flow === f.id}
-            >{f.label}</button>
-          ))}
-        </div>
-      </div>
-    </div>
-  )
-}
