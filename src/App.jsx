@@ -770,13 +770,13 @@ export default function App() {
   }
 
   // Highlight the entire sentence containing word index `idx`.
-  // Uses the CSS Custom Highlight API — zero DOM mutation. Ranges point to
-  // original text nodes that never change, so there are no stale-ref issues.
+  // One range: first word's text node + offset → last word's text node + offset.
+  // Everything in between (commas, spaces, punctuation) is covered.
+  // CSS Custom Highlight API = zero DOM mutation.
   function highlightWord(idx) {
     const ws = wordSpansRef.current
     if (idx < 0 || idx >= ws.length) return
 
-    // Resolve word index to sentence range.
     const sentences = sentenceMapRef.current
     const sentIdx = wordToSentenceRef.current[idx]
     let startIdx = idx, endIdx = idx
@@ -785,80 +785,36 @@ export default function App() {
       endIdx = sentences[sentIdx].end
     }
 
-    // Build StaticRanges for every word in the sentence, then register them
-    // via the CSS Custom Highlight API. Zero DOM mutation — the text nodes
-    // are never touched, so spans stay valid forever.
-    const doc = ws[startIdx]?.node?.ownerDocument
-    const win = doc?.defaultView
-    if (!win?.Highlight || !win?.StaticRange || !win.CSS?.highlights) return
-
-    // Merge contiguous words that live in the SAME text node into a single
-    // range so the highlight is continuous (no gaps between words). Walk the
-    // sentence once; when the next word is in the same text node, extend the
-    // current range's end instead of starting a new one.
-    const ranges = []
-    let firstRange = null
-    let curNode = null
-    let curStart = 0
-    let curEnd = 0
-    const flush = () => {
-      if (curNode && curEnd > curStart) {
-        try {
-          const r = new win.StaticRange({
-            startContainer: curNode, startOffset: curStart,
-            endContainer: curNode, endOffset: curEnd,
-          })
-          ranges.push(r)
-          if (!firstRange) firstRange = r
-        } catch {}
-      }
-    }
+    // Find first and last non-null word spans in the sentence.
+    let firstSpan = null, lastSpan = null
     for (let i = startIdx; i <= endIdx; i++) {
-      const span = ws[i]
-      if (!span?.node) continue
-      const textNode = span.node
-      const textLen = textNode.textContent.length
-      const start = Math.min(span.offset, textLen)
-      const end = Math.min(span.offset + span.length, textLen)
-      if (start >= end) continue
-      if (textNode === curNode && start <= curEnd + 1) {
-        // Same text node, contiguous — extend.
-        curEnd = Math.max(curEnd, end)
-      } else {
-        // Different text node or gap — flush the current range, start new.
-        flush()
-        curNode = textNode
-        curStart = start
-        curEnd = end
+      if (ws[i]?.node) {
+        if (!firstSpan) firstSpan = ws[i]
+        lastSpan = ws[i]
       }
     }
-    flush()
-    if (!ranges.length) return
+    if (!firstSpan || !lastSpan) return
 
-    // Register the highlight. This replaces any previous 'sentence-hl' entry.
-    const highlight = new win.Highlight(...ranges)
-    win.CSS.highlights.set('sentence-hl', highlight)
+    const win = firstSpan.node.ownerDocument.defaultView
+    if (!win?.Highlight || !win?.CSS?.highlights) return
 
-    // Throttle scroll to once per ~600ms, respect reduced motion.
-    if (firstRange) {
-      const now = performance.now()
-      if (now - lastScrollRef.current > 600) {
-        lastScrollRef.current = now
-        const reduced = window.matchMedia?.('(prefers-reduced-motion: reduce)').matches
-        // scrollIntoView doesn't work on StaticRange; use a regular Range.
-        try {
-          const scrollRange = doc.createRange()
-          scrollRange.setStart(firstRange.startContainer, firstRange.startOffset)
-          scrollRange.setEnd(firstRange.endContainer, firstRange.endOffset)
-          const rect = scrollRange.getBoundingClientRect()
-          if (rect.top || rect.bottom) {
-            scrollRange.startContainer.ownerDocument.defaultView?.scrollTo?.({
-              top: scrollRange.startContainer.parentElement?.offsetTop - 200,
-              behavior: reduced ? 'auto' : 'smooth',
-            })
-          }
-        } catch {}
-      }
+    // One range from the first word's start to the last word's end.
+    const range = new win.StaticRange({
+      startContainer: firstSpan.node,
+      startOffset: firstSpan.offset,
+      endContainer: lastSpan.node,
+      endOffset: lastSpan.offset + lastSpan.length,
+    })
+    win.CSS.highlights.set('sentence-hl', new win.Highlight(range))
+
+    // Scroll the sentence into view (throttled).
+    const now = performance.now()
+    if (now - lastScrollRef.current > 600) {
+      lastScrollRef.current = now
+      const reduced = window.matchMedia?.('(prefers-reduced-motion: reduce)').matches
+      try {
+        firstSpan.node.parentElement?.scrollIntoView({ block: 'center', behavior: reduced ? 'auto' : 'smooth' })
+      } catch {}
     }
   }
 
