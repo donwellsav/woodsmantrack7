@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState, useCallback } from 'react'
 import ErrorBoundary from './ErrorBoundary.jsx'
 import SettingsPanel from './SettingsPanel.jsx'
-import { FONTS, loadPrefs } from './prefs.js'
+import { FONTS, FLOW_OPTS, loadPrefs } from './prefs.js'
 
 const EPUB_URL = '/book.epub'
 const MANIFEST_URL = '/chapters.json'
@@ -45,9 +45,12 @@ function readerCss(theme, prefs) {
   const font = FONTS[prefs?.font] || FONTS.iowan
   const size = prefs?.size ?? 19
   const lh = prefs?.lineHeight ?? 1.7
-  // Body is constrained to a single centered 38em column for the EPUB
-  // reader content (centered reading column).
-  const bodyWidthRule = `body { max-width: 38em !important; margin: 0 auto !important; padding: 1em 1.2em !important; }
+  // Paginated mode: don't constrain body max-width — foliate's columnize()
+  // needs the body unconstrained. Scrolled mode: 38em centered column.
+  const flow = prefs?.flow ?? 'scrolled'
+  const bodyWidthRule = flow === 'paginated'
+    ? 'body { padding: 1em 1.2em !important; }'
+    : `body { max-width: 38em !important; margin: 0 auto !important; padding: 1em 1.2em !important; }
        section, section.level1, .level1, section > * { max-width: 38em !important; margin-left: auto !important; margin-right: auto !important; }`
   return FONT_FACES + `
     html, body {
@@ -206,6 +209,8 @@ export default function App() {
   const wordToSentenceRef = useRef([])    // wordIdx -> sentenceIdx reverse lookup
   const pendingSeekRef = useRef(0)         // audio seek target to restore on chapter load
   const lastSaveRef = useRef(0)            // throttle timestamp for progress saves
+  const pageEndRef = useRef(Infinity)      // paginated: end time of last visible word on current page
+  const pageTurningRef = useRef(false)     // paginated: true while a page-turn is in flight (prevents re-entry)
   const rafIdxRef = useRef(-1)            // PERF-5: pending rAF word index (-1 = no scheduled frame)
   const rafHandleRef = useRef(0)          // PERF-5: handle of the in-flight rAF so we can cancel on unmount
   const chapterGenRef = useRef(0)         // CQ-8: increments on chapter change; mapWordsToDOM / highlightWord bail if the gen they were called with is stale
@@ -235,7 +240,7 @@ export default function App() {
     // switch the renderer's flow mode live; foliate re-renders the section
     const view = viewRef.current
     if (view?.renderer?.setAttribute) {
-      try { view.renderer.setAttribute('flow', 'scrolled') } catch {}
+      try { view.renderer.setAttribute('flow', prefs.flow) } catch {}
     }
     applyReaderCss()
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -486,6 +491,24 @@ export default function App() {
     textMapRef.current = { fullText: combined, posMap: combinedMap }
     enforceSingleColumn()
     mapWordsToDOM()
+    // Paginated mode: after word spans are built for the current page,
+    // find the end time of the last non-null span. This is the audio
+    // timestamp at which the current page is "done" and we should flip.
+    // Also clear the page-turn latch — the new page is ready.
+    pageTurningRef.current = false
+    if (prefsRef.current.flow === 'paginated') {
+      const ws = wordSpansRef.current
+      const t = timingsRef.current
+      pageEndRef.current = Infinity
+      if (t?.words?.length) {
+        for (let i = ws.length - 1; i >= 0; i--) {
+          if (ws[i]?.node) {
+            pageEndRef.current = t.words[i]?.end ?? Infinity
+            break
+          }
+        }
+      }
+    }
     if (prefsRef.current.clickToSeek) {
       attachClickToSeek(docs)
     } else {
@@ -508,6 +531,8 @@ export default function App() {
   function enforceSingleColumn() {
     const view = viewRef.current
     if (!view?.renderer) return
+    // Skip in paginated mode — let foliate's columnize() handle layout.
+    if (prefsRef.current.flow === 'paginated') return
     let docs
     try { docs = view.renderer.getContents() } catch { return }
     for (const d of docs || []) {
@@ -545,7 +570,7 @@ export default function App() {
       // continuous scroll: one smooth native-scroll document per chapter
       // — no transition to jank, and getContents()
       // returns the whole chapter so the text map builds once per chapter.
-      try { view.renderer.setAttribute('flow', 'scrolled') } catch {}
+      try { view.renderer.setAttribute('flow', prefs.flow) } catch {}
       // theme the reader's scroll container (it lives in the paginator's shadow
       // root, so inject a stylesheet there to style its scrollbar per theme).
       try {
@@ -740,6 +765,17 @@ export default function App() {
         highlightWord(target)
       }
     })
+    // Paginated mode: if audio has passed the end of the current page's
+    // last visible word, flip to the next page. The page-turn latch
+    // prevents re-entry until buildSectionTextMap resets it on the
+    // foliate 'load' event (which fires after the page renders).
+    if (prefsRef.current.flow === 'paginated' && !pageTurningRef.current) {
+      if (a.currentTime >= pageEndRef.current) {
+        pageTurningRef.current = true
+        const r = viewRef.current?.renderer
+        if (r && typeof r.next === 'function') r.next().catch(() => {})
+      }
+    }
   }
   const onLoadedMeta = () => setDuration(audioRef.current?.duration || 0)
   const advancingRef = useRef(false)

@@ -37,7 +37,10 @@ export const FONTS = {
   },
 }
 
-// (FLOW_OPTS removed — only scroll mode is supported now)
+export const FLOW_OPTS = [
+  { id: 'scrolled', label: 'Scroll', note: 'Continuous, smooth' },
+  { id: 'paginated', label: 'Page', note: 'One page at a time' },
+]
 
 // CQ-6: validate prefs from localStorage. Defaults are tuned for a comfortable
 // book-reading experience on both light and dark themes.
@@ -47,6 +50,7 @@ export function loadPrefs() {
     return {
       font: FONTS[p.font] ? p.font : 'iowan',
       size: typeof p.size === 'number' && p.size >= 16 && p.size <= 32 ? p.size : 19,
+      flow: p.flow === 'paginated' ? 'paginated' : 'scrolled',
       lineHeight: typeof p.lineHeight === 'number' && p.lineHeight >= 1.3 && p.lineHeight <= 2.2 ? p.lineHeight : 1.7,
       clickToSeek: p.clickToSeek === true,
     }
