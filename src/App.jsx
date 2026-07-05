@@ -189,6 +189,10 @@ export default function App() {
 
   const viewRef = useRef(null)
   const audioRef = useRef(null)
+  // Paginated mode: time of last page-turn so we only call r.next() once
+  // per page-render cycle. The foliate 'load' event resets our mental
+  // "new page is ready" state; this is just a time-based throttle.
+  const lastPageTurnAtRef = useRef(0)
   const foliateReady = useRef(false)
   // CQ-5: state mirror of foliateReady so the chapter-nav effect re-runs when
   // foliate finishes opening, instead of relying on a pendingNav ref that
@@ -781,13 +785,16 @@ export default function App() {
       if (targetSent !== lastWordIdxRef.current) {
         lastWordIdxRef.current = targetSent
         highlightWord(target)
-        // Paginated mode: when a new sentence begins, advance to the next
-        // page so the reader always shows the current sentence. Foliate's
-        // paginator handles the page swap (no scroll); buildSectionTextMap
-        // re-runs on the foliate 'load' event to refresh word spans.
+        // Paginated mode: when a new sentence begins, advance foliate
+        // to the next page. Throttled to 1 per second so a brief flicker
+        // between 'load' and our buildSectionTextMap doesn't re-trigger.
         if (prefsRef.current.flow === 'paginated') {
-          const r = viewRef.current?.renderer
-          if (r && typeof r.next === 'function') r.next().catch(() => {})
+          const now = performance.now()
+          if (now - lastPageTurnAtRef.current > 1000) {
+            lastPageTurnAtRef.current = now
+            const r = viewRef.current?.renderer
+            if (r && typeof r.next === 'function') r.next().catch(() => {})
+          }
         }
       }
     })
