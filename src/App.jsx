@@ -47,6 +47,14 @@ function readerCss(theme, prefs) {
   const font = FONTS[prefs?.font] || FONTS.iowan
   const size = prefs?.size ?? 19
   const lh = prefs?.lineHeight ?? 1.7
+  // In paginated mode, do NOT constrain body max-width — foliate's columnize()
+  // needs the body unconstrained to lay content out as page-sized columns.
+  // The 38em constraint is only for scrolled mode (centered reading column).
+  const flow = prefs?.flow ?? 'scrolled'
+  const bodyWidthRule = flow === 'paginated'
+    ? 'body { padding: 1em 1.2em !important; }'
+    : `body { max-width: 38em !important; margin: 0 auto !important; padding: 1em 1.2em !important; }
+       section, section.level1, .level1, section > * { max-width: 38em !important; margin-left: auto !important; margin-right: auto !important; }`
   return FONT_FACES + `
     html, body {
       background: ${t.readerBg} !important;
@@ -56,8 +64,7 @@ function readerCss(theme, prefs) {
       line-height: ${lh} !important;
       -webkit-font-smoothing: antialiased;
     }
-    body { max-width: 38em !important; margin: 0 auto !important; padding: 1em 1.2em !important; }
-    section, section.level1, .level1, section > * { max-width: 38em !important; margin-left: auto !important; margin-right: auto !important; }
+    ${bodyWidthRule}
     p { margin: 0 0 1em !important; orphans: 2; widows: 2; }
     h1, h2, h3 { line-height: 1.3 !important; color: ${t.readerFg} !important; }
     a, a:link { color: ${t.link} !important; }
@@ -480,9 +487,18 @@ export default function App() {
   // sets inline !important max-width: none on the body so it spans the full
   // viewport (which is correct for paginated reading). For our narrow reader
   // we explicitly cap it and the wrapping <section>.
+  // Constrain the EPUB body to a single centered column.
+  //
+  // IMPORTANT: only applies in 'scrolled' mode. In 'paginated' mode we must
+  // NOT touch the body's max-width — foliate's columnize() needs the body
+  // unconstrained so it can lay content out as a horizontal strip of page-
+  // sized columns. Setting max-width here in paginated mode makes the reader
+  // pane go blank.
   function enforceSingleColumn() {
     const view = viewRef.current
     if (!view?.renderer) return
+    // Skip entirely in paginated mode — let foliate handle the layout.
+    if (prefsRef.current.flow === 'paginated') return
     let docs
     try { docs = view.renderer.getContents() } catch { return }
     for (const d of docs || []) {
@@ -522,13 +538,17 @@ export default function App() {
       // returns the whole chapter so the text map builds once per chapter.
       try { view.renderer.setAttribute('flow', prefsRef.current.flow) } catch {}
       // theme the reader's scroll container (it lives in the paginator's shadow
-      // root, so inject a stylesheet there to style its scrollbar per theme)
+      // root, so inject a stylesheet there to style its scrollbar per theme).
+      // Also force single-page layout in paginated mode — foliate's default
+      // is a 2-page book spread (--_max-column-count-spread: 2), which shows
+      // two columns side by side. Overriding to 1 gives a single page.
       try {
         const sr = view.renderer.shadowRoot
         if (sr && !sr.getElementById('scrollbar-style')) {
           const s = document.createElement('style')
           s.id = 'scrollbar-style'
           s.textContent = `
+            #top { --_max-column-count: 1 !important; --_max-column-count-portrait: 1 !important; }
             #container { scrollbar-width: thin; scrollbar-color: var(--scroll-thumb) var(--scroll-track); }
             #container::-webkit-scrollbar { width: 12px; }
             #container::-webkit-scrollbar-track { background: var(--scroll-track); }
