@@ -860,6 +860,28 @@ export default function App() {
     }
   }
 
+  // When prefs.clickToSeek toggles, attach or detach the click handler on
+  // the current docs. The handler is only ever attached once per doc
+  // (guarded by doc.__ctsClick) so this is safe to run on every toggle.
+  useEffect(() => {
+    const view = viewRef.current
+    if (!view?.renderer?.shadowRoot) return
+    let docs
+    try { docs = view.renderer.getContents() } catch { return }
+    if (!docs?.length) return
+    if (prefs.clickToSeek) {
+      attachClickToSeek(docs)
+    } else {
+      for (const d of docs) {
+        const doc = d.doc
+        if (doc?.__ctsClick) {
+          doc.removeEventListener('click', doc.__ctsClick, true)
+          doc.__ctsClick = null
+        }
+      }
+    }
+  }, [prefs.clickToSeek, chapter, foliateReadyFlag])
+
   // Highlight the entire sentence containing word index `idx`.
   // One range: first word's text node + offset → last word's text node + offset.
   // Everything in between (commas, spaces, punctuation) is covered.
