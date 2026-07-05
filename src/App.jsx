@@ -47,6 +47,16 @@ function readerCss(theme, prefs) {
   const font = FONTS[prefs?.font] || FONTS.iowan
   const size = prefs?.size ?? 19
   const lh = prefs?.lineHeight ?? 1.7
+  // In paginated mode, do NOT constrain body max-width — foliate's
+  // columnize() needs the body to fill the page width so it can break
+  // the content into page-sized columns. Constraining to 38em makes the
+  // body a single narrow column that flows vertically, defeating pagination.
+  // In scrolled mode, 38em gives a comfortable centered reading column.
+  const flow = prefs?.flow ?? 'scrolled'
+  const bodyConstraint = flow === 'paginated'
+    ? `body { margin: 0 !important; padding: 1em 1.2em !important; }`
+    : `body { max-width: 38em !important; margin: 0 auto !important; padding: 1em 1.2em !important; }
+       section, section.level1, .level1, section > * { max-width: 38em !important; margin-left: auto !important; margin-right: auto !important; }`
   return FONT_FACES + `
     html, body {
       background: ${t.readerBg} !important;
@@ -56,8 +66,7 @@ function readerCss(theme, prefs) {
       line-height: ${lh} !important;
       -webkit-font-smoothing: antialiased;
     }
-    body { max-width: 38em !important; margin: 0 auto !important; padding: 1em 1.2em !important; }
-    section, section.level1, .level1, section > * { max-width: 38em !important; margin-left: auto !important; margin-right: auto !important; }
+    ${bodyConstraint}
     p { margin: 0 0 1em !important; orphans: 2; widows: 2; }
     h1, h2, h3 { line-height: 1.3 !important; color: ${t.readerFg} !important; }
     a, a:link { color: ${t.link} !important; }
@@ -480,23 +489,74 @@ export default function App() {
   // sets inline !important max-width: none on the body so it spans the full
   // viewport (which is correct for paginated reading). For our narrow reader
   // we explicitly cap it and the wrapping <section>.
+  // Force a single-column reading layout. Behavior depends on flow mode:
+  //
+  // - scrolled (default): constrain the body + sections to max-width: 38em so
+  //   the text forms one centered column instead of spanning the viewport.
+  //
+  // - paginated: inject an override stylesheet into the paginator's shadow
+  //   root that forces --_max-column-count-spread: 1 (no two-page spread)
+  //   AND clamps every layer of the iframe stack to overflow: hidden so the
+  //   reader pane is a single static page. The paginator still uses its
+  //   internal translateX model to "turn" pages — we just stop the content
+  //   from being visible outside the current page.
   function enforceSingleColumn() {
     const view = viewRef.current
     if (!view?.renderer) return
+
+    // Common: shadow-root override (idempotent — created once).
+    // Force single-page spread (no two-page book layout) AND clamp overflow
+    // ONLY in paginated mode. In scrolled mode, the container MUST keep
+    // overflow: auto (foliate's default) so the user can scroll the chapter.
+    // The :host([flow="paginated"]) selector scopes the clamp so it doesn't
+    // affect scrolled mode.
+    try {
+      const sr = view.renderer.shadowRoot
+      if (sr && !sr.getElementById('reader-layout-override')) {
+        const s = document.createElement('style')
+        s.id = 'reader-layout-override'
+        s.textContent = `
+          #top {
+            --_max-column-count-spread: 1 !important;
+          }
+          :host([flow="paginated"]) #container { overflow: hidden !important; }
+          :host([flow="paginated"]) #container > div { overflow: hidden !important; }
+          :host([flow="paginated"]) #container iframe {
+            overflow: hidden !important;
+            display: block !important;
+          }
+        `
+        sr.appendChild(s)
+      }
+    } catch {}
+
     let docs
     try { docs = view.renderer.getContents() } catch { return }
     for (const d of docs || []) {
       const doc = d.doc
       if (!doc?.body) continue
-      const max = '38em'
-      doc.body.style.setProperty('max-width', max, 'important')
-      doc.body.style.setProperty('max-height', 'none', 'important')
-      doc.body.style.setProperty('margin', '0 auto', 'important')
-      // also pin the level-1 section wrappers (foliate / pandoc put content there)
-      for (const sec of doc.querySelectorAll('section, .level1, section > *')) {
-        sec.style.setProperty('max-width', max, 'important')
-        sec.style.setProperty('margin-left', 'auto', 'important')
-        sec.style.setProperty('margin-right', 'auto', 'important')
+      const flow = prefsRef.current.flow
+      if (flow === 'paginated') {
+        // Paginated mode: let foliate's columnize() handle the layout. It
+        // sets column-width + height on <html> so content flows into page-
+        // sized columns horizontally; the wrapper div then translates to
+        // show one page at a time. We DON'T constrain the body here — the
+        // readerCss() body constraint is already conditional on flow=scrolled.
+        doc.body.style.removeProperty('max-width')
+        doc.body.style.removeProperty('margin')
+      } else {
+        // Scrolled mode: constrain the body + section wrappers so the text
+        // forms one centered column instead of spanning the full viewport.
+        const max = '38em'
+        doc.body.style.setProperty('max-width', max, 'important')
+        doc.body.style.setProperty('max-height', 'none', 'important')
+        doc.body.style.setProperty('margin', '0 auto', 'important')
+        // also pin the level-1 section wrappers (foliate / pandoc put content there)
+        for (const sec of doc.querySelectorAll('section, .level1, section > *')) {
+          sec.style.setProperty('max-width', max, 'important')
+          sec.style.setProperty('margin-left', 'auto', 'important')
+          sec.style.setProperty('margin-right', 'auto', 'important')
+        }
       }
     }
   }
