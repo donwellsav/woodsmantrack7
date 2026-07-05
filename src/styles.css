@@ -94,7 +94,9 @@ body {
   padding-top: env(safe-area-inset-top);
 }
 .book-title {
-  font-size: 0.95rem; font-weight: 600; letter-spacing: 0.2px; color: var(--bar-fg);
+  font-size: 0.95rem; font-weight: 600; letter-spacing: 0.2px;
+  color: var(--accent);
+  text-shadow: 0 0 8px var(--glow);
   font-family: "Iowan Old Style", "Palatino Linotype", Palatino, Georgia, serif;
 }
 .spacer { flex: 1; }
