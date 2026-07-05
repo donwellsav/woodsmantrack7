@@ -492,6 +492,7 @@ export default function App() {
     textMapRef.current = { fullText: combined, posMap: combinedMap }
     enforceSingleColumn()
     mapWordsToDOM()
+    if (prefsRef.current.clickToSeek) attachClickToSeek(docs)
   }
 
   // Force single-column layout on the EPUB body. The pandoc epub stylesheet
@@ -783,6 +784,69 @@ export default function App() {
     }
     sentenceMapRef.current = sentences
     wordToSentenceRef.current = wordToSentence
+  }
+
+  // Attach a click-to-seek handler to each iframe content document. On click,
+  // find which word was clicked using document.caretRangeFromPoint, map it to
+  // its sentence via wordToSentenceRef, then seek audio + start playing.
+  function attachClickToSeek(docs) {
+    for (const d of docs) {
+      const doc = d.doc
+      if (!doc) continue
+      if (doc.__ctsClick) continue // already attached
+      const handler = (e) => {
+        // Ignore clicks on interactive elements inside the sentence text (e.g.
+        // footnote links). The highlight covers plain text only.
+        let target = e.target
+        // Walk up looking for a block element; stop at the body.
+        while (target && target !== doc.body && !/^(P|DIV|LI|H[1-6]|SECTION|BLOCKQUOTE|ARTICLE|MAIN)$/i.test(target.tagName)) {
+          target = target.parentElement
+        }
+        if (!target || target === doc.body) {
+          // No block context — fall back to the actual target
+          target = e.target
+        }
+        // Use caretRangeFromPoint to find the text node + character offset.
+        let range
+        try { range = doc.caretRangeFromPoint(e.clientX, e.clientY) } catch { return }
+        if (!range) return
+        const textNode = range.startContainer
+        if (textNode.nodeType !== 3) return // not a text node
+        const offset = range.startOffset
+        // Find which word contains this (textNode, offset). Walk wordSpans.
+        const ws = wordSpansRef.current
+        const t = timingsRef.current
+        if (!t?.words) return
+        for (let i = 0; i < ws.length; i++) {
+          const s = ws[i]
+          if (!s) continue
+          if (s.node !== textNode) continue
+          if (offset >= s.offset && offset <= s.offset + s.length) {
+            // Found the clicked word. Map to its sentence.
+            const sentIdx = wordToSentenceRef.current[i]
+            const sentences = sentenceMapRef.current
+            if (sentIdx == null || !sentences[sentIdx]) return
+            const sent = sentences[sentIdx]
+            const startTime = t.words?.[sent.start]?.start
+            if (!isFinite(startTime)) return
+            const audio = audioRef.current
+            if (!audio) return
+            // Set pendingSeekRef so any subsequent loadedmetadata doesn't
+            // reset to 0 (same pattern as auto-advance).
+            pendingSeekRef.current = startTime
+            audio.currentTime = startTime
+            setCurrentTime(startTime)
+            // Continuous-playback flag so the natural pause during seek
+            // doesn't kill isPlaying.
+            advancingRef.current = true
+            audio.play().catch(() => {})
+            return
+          }
+        }
+      }
+      doc.addEventListener('click', handler, true)
+      doc.__ctsClick = handler
+    }
   }
 
   // Highlight the entire sentence containing word index `idx`.
