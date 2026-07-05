@@ -108,3 +108,21 @@ npm run preview  # serve the production build
 - `public/foliate-js/` is vendored as-is. See `scripts/update-foliate.sh` for
   the re-vendor cadence; new foliate-js security releases require re-running
   that script.
+
+## Performance follow-ups (audit 2026-07-04)
+
+The following perf findings were deferred because they need a toolchain
+dependency or a larger refactor:
+
+- **PERF-12**: `public/icons/icon-512.png` is 440KB (91% of precache total).
+  Run `brew install oxipng && oxipng -o 4 public/icons/icon-512.png` to
+  compress to ~40-80KB.
+- **PERF-11**: `buildSectionTextMap` runs synchronously on the main thread
+  and blocks the UI for hundreds of ms on long chapters. Move to a Web
+  Worker for true non-blocking parsing.
+- **PERF-1**: `CacheFirst` with `maxEntries: 100` evicts audio by recency
+  rather than listening position. Pinning the current/adjacent chapters
+  needs a custom Workbox plugin.
+- **PERF-19**: First-session bandwidth is ~31MB before first highlight
+  (precache + EPUB + timings + audio chunk). Consider lazy-loading the
+  EPUB only after the user picks a chapter.

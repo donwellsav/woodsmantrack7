@@ -94,8 +94,11 @@ export default defineConfig({
         short_name: 'Track Seven',
         description: 'Synced audiobook + ebook reader',
         display: 'standalone',
-        background_color: '#1a1625',
-        theme_color: '#1a1625',
+        // A11Y-27: was #1a1625 (stale); updated to match the actual dark-theme
+        // --bg value (#1E1E28) so the splash screen doesn't flash a different
+        // color before paint.
+        background_color: '#1E1E28',
+        theme_color: '#1E1E28',
         start_url: '/',
         icons: [
           { src: '/icons/icon-192.png', sizes: '192x192', type: 'image/png' },
@@ -119,6 +122,21 @@ export default defineConfig({
       // book.epub is already in `includeAssets` above and therefore precached.
       workbox: {
         maximumFileSizeToCacheInBytes: 8 * 1024 * 1024,
+        // PERF-2: precache the first chapter's timings so the very first play
+        // is instant. Additional chapters are fetched on demand.
+        additionalManifestEntries: [
+          { url: '/timings/ch002.json', revision: null },
+        ],
+        // PERF-4 + PERF-14: this app is EPUB-only, so the foliate-js modules
+        // for other formats (mobi, fb2, pdf, comic-book, fixed-layout) and
+        // pdfjs (~3MB) are never executed. They live in public/foliate-js/
+        // so view.js's dynamic import() calls don't 404 in the impossible
+        // case they fire, but they don't need to ship in the precache.
+        globIgnores: [
+          '**/foliate-js/{comic-book,fb2,pdf,mobi,fixed-layout,opds,reader,tts,search,quote-image}.js',
+          '**/foliate-js/vendor/pdfjs/**',
+          '**/foliate-js/vendor/fflate.js',
+        ],
         // No runtimeCaching — audio is served via native HTTP cache + Range,
         // EPUB is precached. Adjust here if you want a more aggressive audio
         // cache (e.g. workbox-range-requests plugin) at the cost of seek bugs.
