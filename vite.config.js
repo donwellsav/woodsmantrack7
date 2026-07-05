@@ -84,7 +84,7 @@ export default defineConfig({
       // PERF-7: prompt instead of autoUpdate. Audiobook users leave the tab
       // open for hours; autoUpdate + skipWaiting + clientsClaim would silently
       // take over mid-session and break in-memory refs (timingsCache,
-      // textMapRef, cfiMapRef). With `prompt`, the new SW waits for the user
+      // textMapRef, sectionIndexMapRef). With `prompt`, the new SW waits for the user
       // to acknowledge a "new version available" toast before activating —
       // they can pick a natural break (chapter end) to reload.
       registerType: 'prompt',

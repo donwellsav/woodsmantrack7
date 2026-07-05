@@ -208,7 +208,7 @@ export default function App() {
   const [loading, setLoading] = useState(true)
   // PERF-7: SW update prompt state. The new SW waits to activate until the
   // user accepts this toast — preserves in-memory refs (timingsCache,
-  // textMapRef, cfiMapRef) across deploys during a long listening session.
+  // textMapRef, sectionIndexMapRef) across deploys during a long listening session.
   const [updateAvailable, setUpdateAvailable] = useState(false)
   const swUpdateRef = useRef(null)
   const [manifestLoadError, setManifestLoadError] = useState(null)  // CQ-11
@@ -380,19 +380,29 @@ export default function App() {
     if (!manifest) return
     const ch = manifest.chapters[currentIndex]
     if (!ch || ch.type === 'front-matter') return
-    if (timingsCache.current[ch.id]) {
-      setTimings(timingsCache.current[ch.id])
+    // CQ-17: check `!== undefined` so a cached null (404 negative cache) is
+    // treated as a hit. The previous truthy check re-fetched on every visit
+    // to a title-only / front-matter / unaligned chapter.
+    if (timingsCache.current[ch.id] !== undefined) {
+      const cached = timingsCache.current[ch.id]
+      if (cached) setTimings(cached)
       return
     }
-    // CQ-12: distinguish a benign 404 (no timings shipped for this chapter =
-    // audio-only mode) from a parse error (corrupted JSON = real bug). The
-    // previous code swallowed both with the same handler.
+    // CQ-12 + CQ-17: distinguish a benign missing-timings response (no timings
+    // shipped for this chapter = audio-only mode) from a parse error (real
+    // bug). Cache the negative result so we don't refetch on every visit.
+    //
+    // Note: in dev, Vite serves the SPA index.html (200, text/html) for any
+    // missing file under public/, so we can't rely on r.ok alone. We also
+    // check Content-Type to detect the SPA-fallback case and treat it the
+    // same as a 404.
     fetch(`/timings/${ch.id}.json`).then(r => {
-      if (!r.ok) {
-        // 404 / 410 are expected for title-only / front-matter / unaligned
-        // chapters; cache the negative result so we don't refetch on every
-        // visit (also closes CQ-17).
-        if (r.status === 404 || r.status === 410) {
+      const ct = r.headers.get('content-type') || ''
+      const isJson = ct.includes('application/json') || ct.includes('text/json')
+      if (!r.ok || !isJson) {
+        // 404, 410, or dev-server SPA fallback (200 with text/html) — all
+        // mean "no timings for this chapter." Cache the negative result.
+        if (r.status === 404 || r.status === 410 || !isJson) {
           timingsCache.current[ch.id] = null
           return null
         }
@@ -563,10 +573,13 @@ export default function App() {
       foliateReady.current = true
       // Rebuild the text map only when a section (chapter) loads — NOT on every
       // relocate/page-change, which would block the animation frame and stutter.
-      // CQ-7: store the handler in a ref so a future unmount or re-init could
-      // remove it. The previous anonymous handler was registered once and
-      // never removed — fine for a singleton app but fragile if openFoliateView
-      // is ever called twice.
+      // CQ-7: store the handler in a ref so a re-init (StrictMode double-invoke,
+      // ErrorBoundary retry) can remove the previous one before adding a new one.
+      // Without this, two load handlers would fire per section change and race
+      // on textMapRef.
+      if (loadHandlerRef.current) {
+        try { view.removeEventListener('load', loadHandlerRef.current) } catch {}
+      }
       loadHandlerRef.current = () => { buildSectionTextMap(); enforceSingleColumn() }
       view.addEventListener('load', loadHandlerRef.current)
       buildSectionTextMap()
@@ -579,6 +592,20 @@ export default function App() {
       console.error('foliate open failed', e)
     }
   }
+
+  // CQ-7: unmount cleanup. Remove the foliate 'load' listener + cancel any
+  // pending rAF so a StrictMode remount or ErrorBoundary retry doesn't leave
+  // stale handlers firing against a detached view.
+  useEffect(() => {
+    return () => {
+      const view = viewRef.current
+      if (view && loadHandlerRef.current) {
+        try { view.removeEventListener('load', loadHandlerRef.current) } catch {}
+      }
+      if (rafHandleRef.current) cancelAnimationFrame(rafHandleRef.current)
+      if (cssDebounceRef.current) clearTimeout(cssDebounceRef.current)
+    }
+  }, [])
 
   const viewCallbackRef = useCallback((el) => {
     viewRef.current = el

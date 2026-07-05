@@ -42,11 +42,11 @@
   --shadow: none;
 }
 
-/* A11Y-01: universal border-radius reset (intentional design choice from the
-   settings refactor). The previous '!important' was overkill and also masked
-   focus-ring rendering on some browsers; we keep the reset as a default but
-   make it overridable. Focus visibility lives in :focus-visible below. */
-* { box-sizing: border-box; margin: 0; padding: 0; border-radius: 0; }
+/* A11Y-01: universal reset. The previous '!important' on border-radius was
+   overkill (masked focus-ring rendering on some browsers) and the universal
+   radius reset was not actually desired — components should set their own
+   radii. Removed both. Focus visibility lives in :focus-visible below. */
+* { box-sizing: border-box; margin: 0; padding: 0; }
 
 /* A11Y-01: focus-visible ring for keyboard navigation. :focus-visible only
    triggers for keyboard / AT interaction, not mouse clicks — so mouse users
