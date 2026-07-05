@@ -691,7 +691,19 @@ export default function App() {
       applySeekRef.current = applySeek
       audio.addEventListener('loadedmetadata', applySeek)
     }
-    if (isPlaying) audio.play().catch(() => {})
+    // If we were playing and the new chapter is loading, start playback
+    // once the metadata is ready. Deferring to loadedmetadata avoids races
+    // where play() is called before load() has fully wired the new src
+    // (browsers can pause the element during the swap).
+    if (isPlaying) {
+      const onReady = () => {
+        audio.removeEventListener('loadedmetadata', onReady)
+        audio.play().catch(() => {})
+      }
+      audio.addEventListener('loadedmetadata', onReady)
+      // Failsafe: also try immediately in case loadedmetadata already fired.
+      audio.play().catch(() => {})
+    }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [chapter])
 
@@ -739,10 +751,11 @@ export default function App() {
   const advancingRef = useRef(false)
   const onEnded = () => {
     if (manifest && currentIndex < manifest.chapters.length - 1) {
-      // Flag that we're auto-advancing so onPause doesn't kill isPlaying.
-      advancingRef.current = true
       setCurrentIndex(i => i + 1)
     } else {
+      // End of book: turn off continuous-playback mode so the next pause
+      // is treated as a real user pause.
+      advancingRef.current = false
       setIsPlaying(false)
     }
   }
@@ -828,8 +841,18 @@ export default function App() {
     // onPlay/onPause handlers do it. The previous optimistic setState caused
     // a one-frame label flicker because the audio event fires asynchronously
     // after the React state update.
-    if (audio.paused) { audio.play().catch(() => {}) }
-    else { audio.pause() }
+    if (audio.paused) {
+      // Continuous playback: from this point on, treat any pause event
+      // (including the brief pause at chapter end) as "not a user pause".
+      // The flag is cleared either when the user manually pauses OR
+      // when onPause fires during auto-advance.
+      advancingRef.current = true
+      audio.play().catch(() => {})
+    } else {
+      // User-initiated pause: clear the flag so the next pause is real.
+      advancingRef.current = false
+      audio.pause()
+    }
   }
   const selectChapter = useCallback((idx) => setCurrentIndex(idx), [])
   // CQ-15: memoize next/prev with useCallback so they don't re-allocate every
@@ -1042,6 +1065,8 @@ export default function App() {
         onEnded={onEnded}
         onPlay={() => setIsPlaying(true)}
         onPause={() => {
+          // Skip: the audio briefly fires pause at the end of a chapter
+          // (before the ended event). We're about to auto-advance.
           if (advancingRef.current) { advancingRef.current = false; return }
           setIsPlaying(false)
         }}
