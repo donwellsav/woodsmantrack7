@@ -577,6 +577,12 @@ export default function App() {
               background: var(--scroll-thumb); border-radius: 6px;
               border: 3px solid var(--scroll-track);
             }
+            /* Paginated mode: kill ALL scroll. overflow:clip prevents
+               programmatic scrolling (overflow:hidden doesn't in Chrome). */
+            :host([flow="paginated"]) #container {
+              overflow: clip !important;
+              touch-action: none !important;
+            }
           `
           sr.appendChild(s)
         }
@@ -918,7 +924,9 @@ export default function App() {
     })
     win.CSS.highlights.set('sentence-hl', new win.Highlight(range))
 
-    // Scroll the sentence into view (throttled).
+    // Scroll the sentence into view (throttled). Skipped in paginated mode
+    // — the user wants no movement at all, the page is static.
+    if (prefsRef.current.flow === 'paginated') return
     const now = performance.now()
     if (now - lastScrollRef.current > 600) {
       lastScrollRef.current = now
