@@ -579,6 +579,7 @@ export default function App() {
           const s = document.createElement('style')
           s.id = 'scrollbar-style'
           s.textContent = `
+            #top { --_max-column-count: 1 !important; --_max-column-count-portrait: 1 !important; }
             #container { scrollbar-width: thin; scrollbar-color: var(--scroll-thumb) var(--scroll-track); }
             #container::-webkit-scrollbar { width: 12px; }
             #container::-webkit-scrollbar-track { background: var(--scroll-track); }
