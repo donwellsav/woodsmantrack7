@@ -577,32 +577,11 @@ export default function App() {
               background: var(--scroll-thumb); border-radius: 6px;
               border: 3px solid var(--scroll-track);
             }
-            /* Paginated mode: keep the container at the same position
-               every render. We set the iframe to be exactly one page
-               wide and the container to overflow:hidden with zero size,
-               so no scrolling is possible and only the first page's
-               content is visible. */
+            /* Paginated mode: kill ALL scroll. overflow:clip prevents
+               programmatic scrolling (overflow:hidden doesn't in Chrome). */
             :host([flow="paginated"]) #container {
-              overflow: hidden !important;
-              position: relative !important;
-              left: 0 !important;
-              top: 0 !important;
-              width: 100% !important;
-              height: 100% !important;
-            }
-            :host([flow="paginated"]) #container > div {
-              position: absolute !important;
-              left: 0 !important;
-              top: 0 !important;
-              width: 100% !important;
-              transform: none !important;
-            }
-            :host([flow="paginated"]) #container iframe {
-              position: absolute !important;
-              left: 0 !important;
-              top: 0 !important;
-              width: 100% !important;
-              height: 100% !important;
+              overflow: clip !important;
+              touch-action: none !important;
             }
           `
           sr.appendChild(s)
