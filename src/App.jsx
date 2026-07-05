@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState, useCallback } from 'react'
 import ErrorBoundary from './ErrorBoundary.jsx'
 import SettingsPanel from './SettingsPanel.jsx'
-import { FONTS, FLOW_OPTS, loadPrefs } from './prefs.js'
+import { FONTS, loadPrefs } from './prefs.js'
 
 const EPUB_URL = '/book.epub'
 const MANIFEST_URL = '/chapters.json'
@@ -45,13 +45,9 @@ function readerCss(theme, prefs) {
   const font = FONTS[prefs?.font] || FONTS.iowan
   const size = prefs?.size ?? 19
   const lh = prefs?.lineHeight ?? 1.7
-  // In paginated mode, do NOT constrain body max-width — foliate's columnize()
-  // needs the body unconstrained to lay content out as page-sized columns.
-  // In scrolled mode, 38em gives a comfortable centered reading column.
-  const flow = prefs?.flow ?? 'scrolled'
-  const bodyWidthRule = flow === 'paginated'
-    ? 'body { padding: 1em 1.2em !important; }'
-    : `body { max-width: 38em !important; margin: 0 auto !important; padding: 1em 1.2em !important; }
+  // Body is constrained to a single centered 38em column for the EPUB
+  // reader content (centered reading column).
+  const bodyWidthRule = `body { max-width: 38em !important; margin: 0 auto !important; padding: 1em 1.2em !important; }
        section, section.level1, .level1, section > * { max-width: 38em !important; margin-left: auto !important; margin-right: auto !important; }`
   return FONT_FACES + `
     html, body {
@@ -239,7 +235,7 @@ export default function App() {
     // switch the renderer's flow mode live; foliate re-renders the section
     const view = viewRef.current
     if (view?.renderer?.setAttribute) {
-      try { view.renderer.setAttribute('flow', prefs.flow) } catch {}
+      try { view.renderer.setAttribute('flow', 'scrolled') } catch {}
     }
     applyReaderCss()
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -512,8 +508,6 @@ export default function App() {
   function enforceSingleColumn() {
     const view = viewRef.current
     if (!view?.renderer) return
-    // Skip in paginated mode — let foliate's columnize() handle the layout.
-    if (prefsRef.current.flow === 'paginated') return
     let docs
     try { docs = view.renderer.getContents() } catch { return }
     for (const d of docs || []) {
@@ -548,9 +542,10 @@ export default function App() {
       }
       const file = new File([blob], 'book.epub', { type: blob.type || 'application/epub+zip' })
       await view.open(file)
-      // Set flow mode from prefs. 'scrolled' = continuous vertical scroll.
-      // 'paginated' = foliate's native CSS-column pagination (page-turn).
-      try { view.renderer.setAttribute('flow', prefsRef.current.flow) } catch {}
+      // continuous scroll: one smooth native-scroll document per chapter
+      // — no transition to jank, and getContents()
+      // returns the whole chapter so the text map builds once per chapter.
+      try { view.renderer.setAttribute('flow', 'scrolled') } catch {}
       // theme the reader's scroll container (it lives in the paginator's shadow
       // root, so inject a stylesheet there to style its scrollbar per theme).
       try {
@@ -743,33 +738,6 @@ export default function App() {
       if (targetSent !== lastWordIdxRef.current) {
         lastWordIdxRef.current = targetSent
         highlightWord(target)
-        // Paginated mode: when a new sentence begins, check if its first
-        // word is visible on the current page. If not, advance foliate
-        // to the page containing it. Foliate's native pagination handles
-        // the page swap — no CSS hacks needed.
-        if (prefsRef.current.flow === 'paginated') {
-          const ws = wordSpansRef.current
-          const sentences = sentenceMapRef.current
-          const sent = sentences[targetSent]
-          if (sent && ws[sent.start]?.node) {
-            const node = ws[sent.start].node
-            // Check if the word's text node is within the visible container.
-            // In foliate's columnized mode, the iframe is very wide (all
-            // columns). The #container in the shadow root is the actual
-            // viewport — compare against that.
-            const range = node.ownerDocument.createRange()
-            range.selectNode(node)
-            const rect = range.getBoundingClientRect()
-            const sr = viewRef.current?.renderer?.shadowRoot
-            const container = sr?.querySelector('#container')
-            const containerRect = container?.getBoundingClientRect()
-            if (containerRect && rect.right > containerRect.right + 5) {
-              // Word is on a later page — advance.
-              const r = viewRef.current?.renderer
-              if (r && typeof r.next === 'function') r.next().catch(() => {})
-            }
-          }
-        }
       }
     })
   }
