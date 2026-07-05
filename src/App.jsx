@@ -492,7 +492,18 @@ export default function App() {
     textMapRef.current = { fullText: combined, posMap: combinedMap }
     enforceSingleColumn()
     mapWordsToDOM()
-    if (prefsRef.current.clickToSeek) attachClickToSeek(docs)
+    if (prefsRef.current.clickToSeek) {
+      attachClickToSeek(docs)
+    } else {
+      // Off: remove any previously-attached handler so clicks do nothing.
+      for (const d of docs) {
+        const doc = d.doc
+        if (doc?.__ctsClick) {
+          doc.removeEventListener('click', doc.__ctsClick, true)
+          doc.__ctsClick = null
+        }
+      }
+    }
   }
 
   // Force single-column layout on the EPUB body. The pandoc epub stylesheet
