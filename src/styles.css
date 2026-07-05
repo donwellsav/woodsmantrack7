@@ -10,6 +10,7 @@
   --text: #F4F4F7;
   --text-dim: #9696AF;
   --accent: #A1A1B8;
+  --glow: rgba(180,180,210,0.25);
   --btn-bg: #B3B3C5;
   --btn-fg: #1E1E28;
   --on-accent: #1E1E28;
@@ -31,6 +32,7 @@
   --text: #2C2C3A;
   --text-dim: #48485E;
   --accent: #53536D;
+  --glow: rgba(83,83,109,0.18);
   --btn-bg: #EDEDF1;
   --btn-fg: #2C2C3A;
   --on-accent: #2C2C3A;
@@ -144,7 +146,11 @@ body {
   transition: background 0.15s ease;
 }
 .chapter-item:hover { background: rgba(0, 0, 0, 0.06); }
-.chapter-item.active { background: rgba(0, 0, 0, 0.08); border-left-color: var(--accent); }
+.chapter-item.active {
+  background: var(--glow);
+  border-left-color: var(--accent);
+  box-shadow: inset 0 0 0 1px var(--accent), 0 0 8px -2px var(--accent);
+}
 .chapter-title { font-size: 0.9rem; line-height: 1.3; }
 .chapter-meta {
   display: flex; align-items: center; gap: 8px;
@@ -230,7 +236,8 @@ body {
 .option-btn:last-child { border-right: none; }
 .option-btn:hover { background: rgba(0, 0, 0, 0.06); }
 .option-btn.active {
-  background: var(--bar-bg); color: var(--bar-fg);
+  background: var(--glow); color: var(--text);
+  box-shadow: inset 0 0 0 1px var(--accent), 0 0 6px -1px var(--accent);
 }
 .option-btn .font-sample { font-size: 1.1rem; line-height: 1; padding: 1px 0; }
 .option-btn .option-label { font-size: 0.7rem; opacity: 0.85; }
@@ -250,7 +257,10 @@ body {
 }
 .font-item:last-child { border-bottom: none; }
 .font-item:hover { background: rgba(0, 0, 0, 0.06); }
-.font-item.active { background: var(--bar-bg); color: var(--bar-fg); }
+.font-item.active {
+  background: var(--glow); color: var(--text);
+  box-shadow: inset 0 0 0 1px var(--accent), 0 0 6px -1px var(--accent);
+}
 .font-item .font-sample {
   font-size: 1.3rem; line-height: 1; min-width: 1.5em; text-align: center;
 }
