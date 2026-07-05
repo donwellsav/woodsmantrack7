@@ -198,6 +198,12 @@ body {
 }
 .play-btn:hover { filter: brightness(0.95); }
 .play-btn:active { transform: scale(0.95); }
+/* Glow while playing — matches the sidebar/reader glow treatment */
+.play-btn[aria-pressed="true"] {
+  background: var(--glow);
+  color: var(--text);
+  box-shadow: inset 0 0 0 1px var(--accent), 0 0 12px -1px var(--accent);
+}
 
 .seek {
   flex: 1; height: 6px; -webkit-appearance: none; appearance: none;
