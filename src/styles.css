@@ -42,7 +42,27 @@
   --shadow: none;
 }
 
-* { box-sizing: border-box; margin: 0; padding: 0; border-radius: 0 !important; }
+/* A11Y-01: universal border-radius reset (intentional design choice from the
+   settings refactor). The previous '!important' was overkill and also masked
+   focus-ring rendering on some browsers; we keep the reset as a default but
+   make it overridable. Focus visibility lives in :focus-visible below. */
+* { box-sizing: border-box; margin: 0; padding: 0; border-radius: 0; }
+
+/* A11Y-01: focus-visible ring for keyboard navigation. :focus-visible only
+   triggers for keyboard / AT interaction, not mouse clicks — so mouse users
+   don't see rings they don't want, but keyboard users always do (WCAG 2.4.7). */
+:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+}
+/* Make sure author styles can't accidentally suppress keyboard focus. */
+button:focus-visible, a:focus-visible, input:focus-visible,
+[tabindex]:focus-visible, .chapter-item:focus-visible, .font-item:focus-visible,
+.option-btn:focus-visible, .size-btn:focus-visible, .icon-btn:focus-visible,
+.play-btn:focus-visible, .sidebar-gear:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+}
 
 html, body, #root { height: 100%; }
 
@@ -86,6 +106,8 @@ body {
 .icon-btn:hover { background: rgba(255, 255, 255, 0.12); }
 .icon-btn svg { display: block; }
 .sidebar-gear { color: var(--text-dim); padding: 4px 6px; }
+/* A11Y-11: bump sidebar-gear to a 44x44 touch target (was 28x28). */
+.sidebar-gear { min-width: 44px; min-height: 44px; }
 .sidebar-gear:hover { color: var(--text); background: rgba(0,0,0,0.06); }
 .sidebar-gear[aria-expanded='true'] { color: var(--accent); }
 
@@ -241,7 +263,8 @@ body {
 
 .size-row { display: flex; align-items: stretch; gap: 0; border: 1px solid var(--border); }
 .size-btn {
-  width: 36px; border: none;
+  /* A11Y-09: was 36x~36; bump to 44x44 (WCAG 2.5.5 / Apple HIG minimum). */
+  width: 44px; min-height: 44px; border: none;
   background: var(--bg-elev2); color: var(--text);
   font-size: 1rem; font-weight: 700;
   cursor: pointer; display: flex; align-items: center; justify-content: center;
@@ -312,3 +335,53 @@ body {
   border: none; padding: 8px 16px; cursor: pointer; font-weight: 600;
 }
 .loading-retry:hover { filter: brightness(1.1); }
+/* A11Y-13: skip link — visually hidden until focused. First focusable element
+   in the app so keyboard users can bypass the topbar + sidebar. */
+.skip-link {
+  position: absolute; top: -40px; left: 0;
+  background: var(--accent); color: var(--bar-bg);
+  padding: 8px 16px; z-index: 100;
+  font-weight: 600; text-decoration: none;
+}
+.skip-link:focus { top: 0; }
+
+/* A11Y-04 / A11Y-07: visually-hidden but AT-readable heading pattern. */
+.visually-hidden {
+  position: absolute !important;
+  width: 1px; height: 1px;
+  padding: 0; margin: -1px; overflow: hidden;
+  clip: rect(0, 0, 0, 0); white-space: nowrap; border: 0;
+}
+.sidebar-heading {
+  font-size: 0.85rem; font-weight: 600;
+  color: var(--text-dim);
+  text-transform: uppercase; letter-spacing: 0.04em;
+}
+
+/* A11Y-14, A11Y-21: gate all non-essential motion on prefers-reduced-motion.
+   When the user has set the OS / browser to reduce motion, kill transitions
+   and animations app-wide. */
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after {
+    transition-duration: 0.01ms !important;
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    scroll-behavior: auto !important;
+  }
+}
+
+/* A11Y-17: light-theme badge contrast. The dark-on-light palette in light
+   mode was 1.55:1 / 1.85:1 — well below WCAG 1.4.3 (4.5:1). Flip to
+   light-on-dark in light theme so the badge is always readable. */
+[data-theme='light'] .badge { color: #F4F4F7; }
+[data-theme='light'] .badge.alt { color: #F4F4F7; }
+
+/* A11Y-19: seek slider thumb focus ring (was missing entirely). */
+.seek::-webkit-slider-thumb:focus-visible {
+  outline: 2px solid var(--accent); outline-offset: 2px;
+  box-shadow: 0 0 0 4px var(--accent);
+}
+.seek::-moz-range-thumb:focus-visible {
+  outline: 2px solid var(--accent); outline-offset: 2px;
+  box-shadow: 0 0 0 4px var(--accent);
+}
