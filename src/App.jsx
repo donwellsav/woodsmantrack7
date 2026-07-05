@@ -263,6 +263,10 @@ export default function App() {
       cssRafRef.current = requestAnimationFrame(() => {
         cssRafRef.current = 0
         try { enforceSingleColumn() } catch {}
+        // Click-to-seek: wrap each sentence in a clickable <button> when enabled.
+        try {
+          if (prefsRef.current.clickToSeek) injectSentenceButtons(view)
+        } catch {}
       })
     }, 100)
   }
@@ -492,6 +496,37 @@ export default function App() {
     textMapRef.current = { fullText: combined, posMap: combinedMap }
     enforceSingleColumn()
     mapWordsToDOM()
+    if (prefsRef.current.clickToSeek) {
+      injectSentenceButtons(view)
+      // Attach the click-to-seek listener to each doc that just got sentence
+      // buttons injected. Using capture phase so we catch the event before
+      // foliate's own click handlers.
+      for (const d of docs) {
+        if (!d.doc) continue
+        if (d.doc.__ctsListener) continue // already attached to this doc
+        const handler = (e) => {
+          const target = e.target
+          if (!target || target.tagName !== 'BUTTON') return
+          if (!target.classList?.contains('sentence-link')) return
+          const startTime = parseFloat(target.dataset.startTime)
+          if (!isFinite(startTime)) return
+          const audio = audioRef.current
+          if (!audio) return
+          // Set pendingSeekRef so that if the click triggers a metadata reload
+          // (which fires applySeek with the old target), the seek lands at
+          // our chosen time, not at 0.
+          pendingSeekRef.current = startTime
+          audio.currentTime = startTime
+          setCurrentTime(startTime)
+          // Continuous playback: flag the next pause as auto-advance so the
+          // brief pause during seek doesn't kill isPlaying.
+          advancingRef.current = true
+          audio.play().catch(() => {})
+        }
+        d.doc.addEventListener('click', handler, true)
+        d.doc.__ctsListener = handler
+      }
+    }
   }
 
   // Force single-column layout on the EPUB body. The pandoc epub stylesheet
@@ -525,6 +560,83 @@ export default function App() {
         sec.style.setProperty('margin-left', 'auto', 'important')
         sec.style.setProperty('margin-right', 'auto', 'important')
       }
+    }
+  }
+
+  // Click-to-seek: when enabled, wrap each sentence in the EPUB iframe with
+  // a clickable <button> that seeks the audio to that sentence's start and
+  // starts playing. The <button> sits inline in the paragraph, is invisible
+  // by default (no border/background), and only shows a pointer cursor +
+  // subtle underline on hover.
+  function injectSentenceButtons(view) {
+    if (!view?.renderer) return
+    const sr = view.renderer.shadowRoot
+    if (!sr || !sr.getElementById('sentence-click-style')) {
+      const s = view.ownerDocument.createElement('style')
+      s.id = 'sentence-click-style'
+      s.textContent = `
+        .sentence-link {
+          all: unset;
+          cursor: pointer;
+          color: inherit;
+          font: inherit;
+          display: inline;
+          text-decoration: none;
+        }
+        .sentence-link:hover {
+          text-decoration: underline;
+          text-decoration-color: currentColor;
+          text-decoration-thickness: 1px;
+          text-underline-offset: 3px;
+        }
+        .sentence-link:focus-visible {
+          outline: 2px solid var(--accent, #A1A1B8);
+          outline-offset: 2px;
+          border-radius: 2px;
+        }
+      `
+      sr.appendChild(s)
+    }
+    const docs = view.renderer.getContents?.() || []
+    const sentences = sentenceMapRef.current
+    if (!sentences.length) return
+    for (const d of docs) {
+      const doc = d.doc
+      if (!doc) continue
+      if (doc.body?.dataset?.sentenceLinksInjected === '1') continue
+      const ws = wordSpansRef.current
+      // For each sentence, build a Range from first-word start to last-word end
+      // and surround it with a button. Uses range.surroundContents() (works
+      // because each sentence range spans a single text node in most cases; if
+      // it crosses boundaries we skip the sentence — it stays non-clickable
+      // but the highlight still works).
+      for (let si = 0; si < sentences.length; si++) {
+        const sent = sentences[si]
+        // Find first/last non-null spans in this sentence range
+        let firstSpan = null, lastSpan = null
+        for (let i = sent.start; i <= sent.end; i++) {
+          if (ws[i]?.node) {
+            if (!firstSpan) firstSpan = ws[i]
+            lastSpan = ws[i]
+          }
+        }
+        if (!firstSpan || !lastSpan) continue
+        if (firstSpan.node !== lastSpan.node) continue
+        try {
+          const textNode = firstSpan.node
+          const textLen = textNode.textContent.length
+          const range = doc.createRange()
+          range.setStart(textNode, Math.min(firstSpan.offset, textLen))
+          range.setEnd(textNode, Math.min(lastSpan.offset + lastSpan.length, textLen))
+          const btn = doc.createElement('button')
+          btn.className = 'sentence-link'
+          btn.type = 'button'
+          btn.dataset.sentenceIdx = String(si)
+          btn.dataset.startTime = String(sent.startTime)
+          range.surroundContents(btn)
+        } catch {}
+      }
+      doc.body.dataset.sentenceLinksInjected = '1'
     }
   }
 
@@ -614,6 +726,69 @@ export default function App() {
       console.error('foliate open failed', e)
     }
   }
+
+  // ---- Click-to-seek: attach a click listener to the current foliate
+  // content document(s). The listener is attached each time the section
+  // loads (via the load handler) so we always bind to the FRESH doc that
+  // has the freshly-injected sentence-link buttons.
+  useEffect(() => {
+    const view = viewRef.current
+    if (!view?.renderer?.shadowRoot) return
+    const docs = view.renderer.getContents?.() || []
+    const offs = []
+    for (const d of docs) {
+      const doc = d.doc
+      if (!doc) continue
+      const onClick = (e) => {
+        const target = e.target
+        if (!target || target.tagName !== 'BUTTON') return
+        if (!target.classList?.contains('sentence-link')) return
+        const startTime = parseFloat(target.dataset.startTime)
+        if (!isFinite(startTime)) return
+        const audio = audioRef.current
+        if (!audio) return
+        // Set pendingSeekRef so that if the click triggers a metadata reload
+        // (which fires applySeek with the old target), the seek lands at our
+        // chosen time, not at 0.
+        pendingSeekRef.current = startTime
+        audio.currentTime = startTime
+        setCurrentTime(startTime)
+        // Continuous playback: flag the next pause as auto-advance so the
+        // brief pause during seek doesn't kill isPlaying.
+        advancingRef.current = true
+        audio.play().catch(() => {})
+      }
+      doc.addEventListener('click', onClick, true)
+      offs.push(() => doc.removeEventListener('click', onClick, true))
+    }
+    return () => offs.forEach(off => off())
+  }, [chapter, foliateReadyFlag, prefs.clickToSeek])
+
+  // ---- When clickToSeek flips ON, inject the sentence buttons now (don't
+  // wait for the next applyReaderCss debounce). When it flips OFF, remove
+  // them and unwrap the text nodes back to plain text.
+  useEffect(() => {
+    const view = viewRef.current
+    if (!view?.renderer?.shadowRoot) return
+    const sr = view.renderer.shadowRoot
+    const docs = view.renderer.getContents?.() || []
+    for (const d of docs) {
+      const doc = d.doc
+      if (!doc) continue
+      if (prefs.clickToSeek) {
+        try { injectSentenceButtons(view) } catch {}
+      } else {
+        // Unwrap: replace every <button.sentence-link> with its text content.
+        const btns = doc.querySelectorAll?.('button.sentence-link')
+        btns?.forEach(b => {
+          while (b.firstChild) b.parentNode.insertBefore(b.firstChild, b)
+          b.remove()
+        })
+        doc.normalize?.()
+        if (doc.body) doc.body.dataset.sentenceLinksInjected = ''
+      }
+    }
+  }, [prefs.clickToSeek, chapter, foliateReadyFlag])
 
   // CQ-7: unmount cleanup. Remove the foliate 'load' listener + cancel any
   // pending rAF so a StrictMode remount or ErrorBoundary retry doesn't leave
@@ -774,12 +949,22 @@ export default function App() {
     for (let i = 0; i < t.words.length; i++) {
       wordToSentence[i] = sentences.length
       if (/[.!?]["')\]]?$/.test(t.words[i].word)) {
-        sentences.push({ start: sentStart, end: i })
+        sentences.push({
+          start: sentStart,
+          end: i,
+          startTime: t.words[sentStart]?.start ?? 0,
+          endTime: t.words[i]?.end ?? 0,
+        })
         sentStart = i + 1
       }
     }
     if (sentStart < t.words.length) {
-      sentences.push({ start: sentStart, end: t.words.length - 1 })
+      sentences.push({
+        start: sentStart,
+        end: t.words.length - 1,
+        startTime: t.words[sentStart]?.start ?? 0,
+        endTime: t.words[t.words.length - 1]?.end ?? 0,
+      })
     }
     sentenceMapRef.current = sentences
     wordToSentenceRef.current = wordToSentence
