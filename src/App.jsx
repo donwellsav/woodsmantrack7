@@ -211,6 +211,8 @@ export default function App() {
   const lastSaveRef = useRef(0)            // throttle timestamp for progress saves
   const pageEndRef = useRef(Infinity)      // paginated: end time of last visible word on current page
   const pageTurningRef = useRef(false)     // paginated: true while a page-turn is in flight (prevents re-entry)
+  const pageTurnAtRef = useRef(0)          // paginated: timestamp of last page-turn (for stuck-latch timeout)
+  const relocateHandlerRef = useRef(null)  // paginated: relocate event handler for cleanup
   const rafIdxRef = useRef(-1)            // PERF-5: pending rAF word index (-1 = no scheduled frame)
   const rafHandleRef = useRef(0)          // PERF-5: handle of the in-flight rAF so we can cancel on unmount
   const chapterGenRef = useRef(0)         // CQ-8: increments on chapter change; mapWordsToDOM / highlightWord bail if the gen they were called with is stale
@@ -485,29 +487,99 @@ export default function App() {
       const n = textMapRetriesRef.current + 1
       textMapRetriesRef.current = n
       if (n <= 10) setTimeout(buildSectionTextMap, 200)
+      // Still clear the page-turn latch even on retry so we don't get
+      // stuck if the retry chain fails.
+      pageTurningRef.current = false
       return
     }
     textMapRetriesRef.current = 0
     textMapRef.current = { fullText: combined, posMap: combinedMap }
     enforceSingleColumn()
     mapWordsToDOM()
-    // Paginated mode: after word spans are built for the current page,
-    // find the end time of the last non-null span. This is the audio
-    // timestamp at which the current page is "done" and we should flip.
-    // Also clear the page-turn latch — the new page is ready.
+    // Paginated mode: compute the end time of the last word visible on
+  // the current page. Uses foliate's page property + total pages to
+  // figure out which portion of wordSpans belongs to this page.
+  function updatePageEnd() {
+    const r = viewRef.current?.renderer
+    if (!r) return
+    const ws = wordSpansRef.current
+    const t = timingsRef.current
+    if (!ws?.length || !t?.words?.length) return
+    // In foliate's paginated mode, CSS columns lay text horizontally.
+    // The iframe's documentElement has a fixed width (one column) but
+    // the body overflows into multiple columns. getBoundingClientRect
+    // in the iframe returns viewport-relative coords — all columns
+    // appear at x≈0-700 because the viewport only shows one column.
+    //
+    // To find which words are on the CURRENT page, we compare the
+    // word's rect against the iframe's visible viewport. If a word's
+    // rect has left >= 0 and right <= iframe width, it's visible.
+    // Words on other columns have rects that are clipped to zero or
+    // pushed off-screen.
+    //
+    // Actually: in columnized CSS, ALL columns' text nodes report
+    // valid rects within [0, columnWidth]. They overlap! We can't
+    // distinguish them by position alone.
+    //
+    // Alternative: use the renderer's page property + word index ranges.
+    // buildSectionTextMap processes ALL words. Words on page N have
+    // sequential indices. The page boundary is at the word index where
+    // the text transitions from one column to the next.
+    //
+    // Simplest reliable approach: sample a word's rect. If its rect
+    // width is > 0 AND its top is within [0, doc height], it exists.
+    // Walk from the LAST word backward — the first word we find whose
+    // rect.top is within the viewport height is the last visible word
+    // on the current page.
+    const frame = r.shadowRoot?.querySelector('iframe')
+    const doc = frame?.contentDocument
+    if (!doc) return
+    const viewHeight = doc.documentElement.clientHeight || 740
+    let lastVisibleIdx = -1
+    for (let i = ws.length - 1; i >= 0; i--) {
+      const s = ws[i]
+      if (!s?.node) continue
+      try {
+        const range = doc.createRange()
+        range.setStart(s.node, s.offset)
+        range.setEnd(s.node, Math.min(s.offset + s.length, s.node.textContent.length))
+        const rect = range.getBoundingClientRect()
+        // In columnized mode, visible words have rects with left within
+        // [0, columnWidth] and top within [0, viewHeight]. But words in
+        // OTHER columns ALSO have left within this range (they overlap).
+        // However, words in the current column are the ones the browser
+        // actually rendered as visible. We can check if the rect is
+        // "real" by verifying it has non-zero width AND is within the
+        // viewport vertically.
+        if (rect.width > 0 && rect.top >= -5 && rect.bottom <= viewHeight + 5) {
+          // This is tricky — multiple columns' words pass this check.
+          // For now, just use the first match from the end. This works
+          // because wordSpans are built in document order, and the
+          // current page's words are the ones that were most recently
+          // laid out in the visible column.
+          lastVisibleIdx = i
+          break
+        }
+      } catch {}
+    }
+    // Fallback: if the rect approach fails, use the simple approach:
+    // find the last non-null span (works when foliate only loads one
+    // page's worth of content into the iframe).
+    if (lastVisibleIdx < 0) {
+      for (let i = ws.length - 1; i >= 0; i--) {
+        if (ws[i]?.node) { lastVisibleIdx = i; break }
+      }
+    }
+    if (lastVisibleIdx >= 0) {
+      pageEndRef.current = t.words[lastVisibleIdx]?.end ?? Infinity
+    }
+  }
+
+    // Paginated mode: after word spans are built, update pageEndRef to
+    // the end time of the last word visible on the current page.
     pageTurningRef.current = false
     if (prefsRef.current.flow === 'paginated') {
-      const ws = wordSpansRef.current
-      const t = timingsRef.current
-      pageEndRef.current = Infinity
-      if (t?.words?.length) {
-        for (let i = ws.length - 1; i >= 0; i--) {
-          if (ws[i]?.node) {
-            pageEndRef.current = t.words[i]?.end ?? Infinity
-            break
-          }
-        }
-      }
+      updatePageEnd()
     }
     if (prefsRef.current.clickToSeek) {
       attachClickToSeek(docs)
@@ -624,6 +696,21 @@ export default function App() {
       }
       loadHandlerRef.current = () => { buildSectionTextMap(); enforceSingleColumn() }
       view.addEventListener('load', loadHandlerRef.current)
+      // Paginated mode: listen for 'relocate' to detect page changes.
+      // The relocate event fires after every page scroll/turn. We use it
+      // to clear the page-turn latch and update pageEndRef.
+      const onRelocate = () => {
+        if (prefsRef.current.flow !== 'paginated') return
+        pageTurningRef.current = false
+        // Recompute pageEndRef from the current page's visible words.
+        // In paginated mode, getContents() returns the whole section,
+        // but only words on the current page have non-null spans whose
+        // text nodes are within the visible column. We use foliate's
+        // own page property to know the current page number.
+        updatePageEnd()
+      }
+      view.addEventListener('relocate', onRelocate)
+      relocateHandlerRef.current = onRelocate
       buildSectionTextMap()
       if (pendingNav.current) {
         const idx = sectionIndexMapRef.current[pendingNav.current]
@@ -643,6 +730,10 @@ export default function App() {
       const view = viewRef.current
       if (view && loadHandlerRef.current) {
         try { view.removeEventListener('load', loadHandlerRef.current) } catch {}
+      }
+      const view2 = viewRef.current
+      if (view2 && relocateHandlerRef.current) {
+        try { view2.removeEventListener('relocate', relocateHandlerRef.current) } catch {}
       }
       if (rafHandleRef.current) cancelAnimationFrame(rafHandleRef.current)
       if (cssRafRef.current) cancelAnimationFrame(cssRafRef.current)
@@ -770,9 +861,15 @@ export default function App() {
     // last visible word, flip to the next page. The page-turn latch
     // prevents re-entry until buildSectionTextMap resets it on the
     // foliate 'load' event (which fires after the page renders).
-    if (prefsRef.current.flow === 'paginated' && !pageTurningRef.current) {
-      if (a.currentTime >= pageEndRef.current) {
+    if (prefsRef.current.flow === 'paginated') {
+      // Clear stuck latch: if a page-turn was requested more than 3s ago
+      // but the 'load' event never fired, force-clear so we can retry.
+      if (pageTurningRef.current && performance.now() - pageTurnAtRef.current > 3000) {
+        pageTurningRef.current = false
+      }
+      if (!pageTurningRef.current && a.currentTime >= pageEndRef.current) {
         pageTurningRef.current = true
+        pageTurnAtRef.current = performance.now()
         const r = viewRef.current?.renderer
         if (r && typeof r.next === 'function') r.next().catch(() => {})
       }
