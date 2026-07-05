@@ -72,6 +72,10 @@ function readerCss(theme, prefs) {
       box-shadow: 0 0 6px 1px ${t.glow}, 0 0 2px 0 ${t.glow} inset !important;
       border-radius: 2px !important;
     }
+    ::highlight(sentence-hl) {
+      background-color: ${t.hl};
+      color: inherit;
+    }
   `
 }
 
@@ -202,6 +206,8 @@ export default function App() {
   const wordSpansRef = useRef([])         // [{node, offset, length}] per timing word
   const currentMarkRef = useRef(null)     // currently inserted <mark>
   const lastWordIdxRef = useRef(-1)
+  const sentenceMapRef = useRef([])       // [{ start, end }] word-index range per sentence
+  const wordToSentenceRef = useRef([])    // wordIdx -> sentenceIdx reverse lookup
   const pendingSeekRef = useRef(0)         // audio seek target to restore on chapter load
   const lastSaveRef = useRef(0)            // throttle timestamp for progress saves
   const rafIdxRef = useRef(-1)            // PERF-5: pending rAF word index (-1 = no scheduled frame)
@@ -213,7 +219,12 @@ export default function App() {
   const isScrubbingRef = useRef(false)    // PERF-9: true while the user is dragging the seek slider
   const epubPromiseRef = useRef(null)     // PERF-10: preloaded EPUB Blob promise (parallel with manifest fetch)
 
-  useEffect(() => { timingsRef.current = timings }, [timings])
+  useEffect(() => {
+    timingsRef.current = timings
+    // Build sentence boundaries so highlightWord can resolve word→sentence.
+    buildSentenceMap(timings)
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [timings])
   useEffect(() => {
     themeRef.current = theme
     try { localStorage.setItem(THEME_KEY, theme) } catch {}
@@ -706,19 +717,20 @@ export default function App() {
       const mid = (lo + hi) >> 1
       if (t.words[mid].start <= now) { idx = mid; lo = mid + 1 } else { hi = mid - 1 }
     }
-    // PERF-5: coalesce multiple timeupdates into a single rAF — at most one DOM
-    // mutation per animation frame. Browsers fire timeupdate ~4×/sec, so without
-    // this we'd get up to 4 highlightWord + scrollIntoView calls per second on
-    // the same word. If a frame is already scheduled, just bump its target idx.
-    if (idx === lastWordIdxRef.current) return
+    // PERF-5: coalesce into a single rAF. Skip when the SENTENCE hasn't
+    // changed — the whole sentence highlights at once, so re-highlighting
+    // the same sentence is wasted work.
+    const sentIdx = wordToSentenceRef.current[idx] ?? idx
+    if (sentIdx === lastWordIdxRef.current) return
     rafIdxRef.current = idx
     if (rafHandleRef.current) return
     rafHandleRef.current = requestAnimationFrame(() => {
       rafHandleRef.current = 0
       const target = rafIdxRef.current
       rafIdxRef.current = -1
-      if (target !== lastWordIdxRef.current) {
-        lastWordIdxRef.current = target
+      const targetSent = wordToSentenceRef.current[target] ?? target
+      if (targetSent !== lastWordIdxRef.current) {
+        lastWordIdxRef.current = targetSent
         highlightWord(target)
       }
     })
@@ -732,47 +744,122 @@ export default function App() {
     }
   }
 
-  function highlightWord(idx) {
-    // remove previous mark
-    if (currentMarkRef.current) {
-      try {
-        const m = currentMarkRef.current
-        // PERF-5 / CQ-9: null-check parentNode — if the previous mark was
-        // detached by a section reload or a surrounding mutation, the unwrap
-        // would throw and currentMarkRef would point at a dead node forever.
-        const parent = m.parentNode
-        if (parent) {
-          while (m.firstChild) parent.insertBefore(m.firstChild, m)
-          parent.removeChild(m)
-          parent.normalize()
-        }
-      } catch {}
-      currentMarkRef.current = null
+  // Split the timings words into sentence ranges by walking the array and
+  // cutting on sentence-ending punctuation (., !, ?, .", ?, etc.).
+  function buildSentenceMap(t) {
+    if (!t || !t.words || !t.words.length) {
+      sentenceMapRef.current = []
+      wordToSentenceRef.current = []
+      return
     }
+    const sentences = []
+    const wordToSentence = new Array(t.words.length)
+    let sentStart = 0
+    for (let i = 0; i < t.words.length; i++) {
+      wordToSentence[i] = sentences.length
+      if (/[.!?]["')\]]?$/.test(t.words[i].word)) {
+        sentences.push({ start: sentStart, end: i })
+        sentStart = i + 1
+      }
+    }
+    if (sentStart < t.words.length) {
+      sentences.push({ start: sentStart, end: t.words.length - 1 })
+    }
+    sentenceMapRef.current = sentences
+    wordToSentenceRef.current = wordToSentence
+  }
+
+  // Highlight the entire sentence containing word index `idx`.
+  // Uses the CSS Custom Highlight API — zero DOM mutation. Ranges point to
+  // original text nodes that never change, so there are no stale-ref issues.
+  function highlightWord(idx) {
     const ws = wordSpansRef.current
     if (idx < 0 || idx >= ws.length) return
-    const span = ws[idx]
-    if (!span) return
-    try {
+
+    // Resolve word index to sentence range.
+    const sentences = sentenceMapRef.current
+    const sentIdx = wordToSentenceRef.current[idx]
+    let startIdx = idx, endIdx = idx
+    if (sentences.length && sentIdx != null && sentences[sentIdx]) {
+      startIdx = sentences[sentIdx].start
+      endIdx = sentences[sentIdx].end
+    }
+
+    // Build StaticRanges for every word in the sentence, then register them
+    // via the CSS Custom Highlight API. Zero DOM mutation — the text nodes
+    // are never touched, so spans stay valid forever.
+    const doc = ws[startIdx]?.node?.ownerDocument
+    const win = doc?.defaultView
+    if (!win?.Highlight || !win?.StaticRange || !win.CSS?.highlights) return
+
+    // Merge contiguous words that live in the SAME text node into a single
+    // range so the highlight is continuous (no gaps between words). Walk the
+    // sentence once; when the next word is in the same text node, extend the
+    // current range's end instead of starting a new one.
+    const ranges = []
+    let firstRange = null
+    let curNode = null
+    let curStart = 0
+    let curEnd = 0
+    const flush = () => {
+      if (curNode && curEnd > curStart) {
+        try {
+          const r = new win.StaticRange({
+            startContainer: curNode, startOffset: curStart,
+            endContainer: curNode, endOffset: curEnd,
+          })
+          ranges.push(r)
+          if (!firstRange) firstRange = r
+        } catch {}
+      }
+    }
+    for (let i = startIdx; i <= endIdx; i++) {
+      const span = ws[i]
+      if (!span?.node) continue
       const textNode = span.node
-      if (!textNode || !textNode.parentNode) return
-      const range = document.createRange()
-      range.setStart(textNode, span.offset)
-      range.setEnd(textNode, Math.min(span.offset + span.length, textNode.textContent.length))
-      const mark = document.createElement('mark')
-      mark.className = 'word-hl'
-      range.surroundContents(mark)
-      currentMarkRef.current = mark
-      // PERF-5: throttle scrollIntoView to once per ~600ms so a long chapter
-      // doesn't keep restarting a smooth-scroll every word boundary.
-      // Respect prefers-reduced-motion (also closes A11Y-02).
+      const textLen = textNode.textContent.length
+      const start = Math.min(span.offset, textLen)
+      const end = Math.min(span.offset + span.length, textLen)
+      if (start >= end) continue
+      if (textNode === curNode && start <= curEnd + 1) {
+        // Same text node, contiguous — extend.
+        curEnd = Math.max(curEnd, end)
+      } else {
+        // Different text node or gap — flush the current range, start new.
+        flush()
+        curNode = textNode
+        curStart = start
+        curEnd = end
+      }
+    }
+    flush()
+    if (!ranges.length) return
+
+    // Register the highlight. This replaces any previous 'sentence-hl' entry.
+    const highlight = new win.Highlight(...ranges)
+    win.CSS.highlights.set('sentence-hl', highlight)
+
+    // Throttle scroll to once per ~600ms, respect reduced motion.
+    if (firstRange) {
       const now = performance.now()
       if (now - lastScrollRef.current > 600) {
         lastScrollRef.current = now
         const reduced = window.matchMedia?.('(prefers-reduced-motion: reduce)').matches
-        mark.scrollIntoView({ block: 'center', behavior: reduced ? 'auto' : 'smooth' })
+        // scrollIntoView doesn't work on StaticRange; use a regular Range.
+        try {
+          const scrollRange = doc.createRange()
+          scrollRange.setStart(firstRange.startContainer, firstRange.startOffset)
+          scrollRange.setEnd(firstRange.endContainer, firstRange.endOffset)
+          const rect = scrollRange.getBoundingClientRect()
+          if (rect.top || rect.bottom) {
+            scrollRange.startContainer.ownerDocument.defaultView?.scrollTo?.({
+              top: scrollRange.startContainer.parentElement?.offsetTop - 200,
+              behavior: reduced ? 'auto' : 'smooth',
+            })
+          }
+        } catch {}
       }
-    } catch {}
+    }
   }
 
   const togglePlay = () => {
