@@ -1,4 +1,5 @@
 import { useEffect, useRef, useState, useCallback } from 'react'
+import ErrorBoundary from './ErrorBoundary.jsx'
 
 const EPUB_URL = '/book.epub'
 const MANIFEST_URL = '/chapters.json'
@@ -203,6 +204,7 @@ export default function App() {
   // textMapRef, cfiMapRef) across deploys during a long listening session.
   const [updateAvailable, setUpdateAvailable] = useState(false)
   const swUpdateRef = useRef(null)
+  const [manifestLoadError, setManifestLoadError] = useState(null)  // CQ-11
   const [sidebarOpen, setSidebarOpen] = useState(true)
   const [syncAvailable, setSyncAvailable] = useState(false)
   const [timings, setTimings] = useState(null)
@@ -218,7 +220,10 @@ export default function App() {
   const pendingNav = useRef(null)
   const timingsCache = useRef({})
   const timingsRef = useRef(null)         // mirror of timings state for event handlers
-  const cfiMapRef = useRef({})            // chapter id -> CFI for goTo
+  const sectionIndexMapRef = useRef({})   // chapter id -> section index for renderer.goTo
+  const loadHandlerRef = useRef(null)     // CQ-7: named foliate 'load' handler so we can removeEventListener
+  const applySeekRef = useRef(null)       // CQ-3: pending applySeek listener so chapter change can remove it
+  const textMapRetriesRef = useRef(0)     // CQ-4: section-text-map retry counter, reset on chapter change
   const textMapRef = useRef(null)         // { fullText, posMap } for current section
   const wordSpansRef = useRef([])         // [{node, offset, length}] per timing word
   const currentMarkRef = useRef(null)     // currently inserted <mark>
@@ -292,10 +297,15 @@ export default function App() {
       const a = audioRef.current
       saveProgress(currentIndex, a?.currentTime || 0)
     }
+    // CQ-2: hoist the visibilitychange handler to a named function so the
+    // cleanup can remove it. The previous anonymous handler leaked across
+    // every chapter change (a new one was registered each time).
+    const onVis = () => { if (document.hidden) flush() }
     window.addEventListener('pagehide', flush)
-    document.addEventListener('visibilitychange', () => { if (document.hidden) flush() })
+    document.addEventListener('visibilitychange', onVis)
     return () => {
       window.removeEventListener('pagehide', flush)
+      document.removeEventListener('visibilitychange', onVis)
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [currentIndex])
@@ -307,7 +317,14 @@ export default function App() {
     // React commits + foliate finishes loading), serializing ~260KB behind
     // the chapter list paint. Preloading here lets both round-trips overlap.
     epubPromiseRef.current = fetch(EPUB_URL).then(r => r.blob()).catch(() => null)
-    fetch(MANIFEST_URL).then(r => r.json()).then(m => {
+    // CQ-11: handle network / parse failures so the app doesn't hang on
+    // "Loading..." forever. Surface the error in the UI so the user can
+    // tell the difference between "still loading" and "the manifest is gone".
+    fetch(MANIFEST_URL).then(r => {
+      if (!r.ok) throw new Error(`manifest HTTP ${r.status}`)
+      return r.json()
+    }).then(m => {
+      if (!m || !Array.isArray(m.chapters)) throw new Error('manifest shape: missing chapters')
       setManifest(m)
       setLoading(false)
       // restore last position
@@ -318,6 +335,11 @@ export default function App() {
           pendingSeekRef.current = saved.currentTime || 0
         }
       } catch {}
+    }).catch(err => {
+      // eslint-disable-next-line no-console
+      console.error('manifest load failed:', err)
+      setManifestLoadError(err?.message || String(err))
+      setLoading(false)
     })
   }, [])
 
@@ -329,6 +351,16 @@ export default function App() {
     setSyncAvailable(false)
     wordSpansRef.current = []
     lastWordIdxRef.current = -1
+    // CQ-4: reset the retry counter so chapter A's pending retries can't
+    // fire after chapter B's section loads.
+    textMapRetriesRef.current = 0
+    // CQ-3: clear any pending applySeek listener from the previous chapter
+    // so a slow loadedmetadata can't reset this chapter's audio.currentTime.
+    if (applySeekRef.current) {
+      const audio = audioRef.current
+      if (audio) audio.removeEventListener('loadedmetadata', applySeekRef.current)
+      applySeekRef.current = null
+    }
     if (!manifest) return
     const ch = manifest.chapters[currentIndex]
     if (!ch || ch.type === 'front-matter') return
@@ -336,13 +368,32 @@ export default function App() {
       setTimings(timingsCache.current[ch.id])
       return
     }
+    // CQ-12: distinguish a benign 404 (no timings shipped for this chapter =
+    // audio-only mode) from a parse error (corrupted JSON = real bug). The
+    // previous code swallowed both with the same handler.
     fetch(`/timings/${ch.id}.json`).then(r => {
-      if (!r.ok) throw new Error(`no timings for ${ch.id}`)
+      if (!r.ok) {
+        // 404 / 410 are expected for title-only / front-matter / unaligned
+        // chapters; cache the negative result so we don't refetch on every
+        // visit (also closes CQ-17).
+        if (r.status === 404 || r.status === 410) {
+          timingsCache.current[ch.id] = null
+          return null
+        }
+        throw new Error(`timings ${ch.id}: HTTP ${r.status}`)
+      }
       return r.json()
     }).then(d => {
+      if (!d) return  // negative cache hit
+      if (!d.words || !Array.isArray(d.words)) throw new Error(`timings ${ch.id}: bad shape`)
       timingsCache.current[ch.id] = d
       setTimings(d)
-    }).catch(() => { /* no timings = chapter-sync only */ })
+    }).catch(err => {
+      // Real errors (parse failure, network) get logged; the app falls back
+      // to chapter-sync-only mode for this chapter.
+      // eslint-disable-next-line no-console
+      console.warn(`timings ${ch.id} failed:`, err?.message || err)
+    })
   }, [manifest, currentIndex])
 
   // re-map words to DOM whenever timings arrive
@@ -401,13 +452,17 @@ export default function App() {
     // foliate may fire 'load' before the section's body is fully populated;
     // if the captured text is too short, retry shortly (but cap retries so
     // genuinely short chapters — e.g. title-only — don't loop forever).
+    // CQ-4: counter lives in a ref (reset on chapter change) instead of a
+    // function-property, so stale retries from chapter A can't fire after
+    // the user has navigated to chapter B and overwrite textMapRef with
+    // the wrong chapter's text.
     if (combined.length < 200) {
-      const n = (buildSectionTextMap._retries || 0) + 1
-      buildSectionTextMap._retries = n
+      const n = textMapRetriesRef.current + 1
+      textMapRetriesRef.current = n
       if (n <= 10) setTimeout(buildSectionTextMap, 200)
       return
     }
-    buildSectionTextMap._retries = 0
+    textMapRetriesRef.current = 0
     textMapRef.current = { fullText: combined, posMap: combinedMap }
     enforceSingleColumn()
     mapWordsToDOM()
@@ -477,24 +532,31 @@ export default function App() {
       await view.renderer.firstSection().catch(() => {})
       // theme the EPUB content (foliate stores + reapplies these on every chapter)
       try { view.renderer.setStyles(readerCss(themeRef.current, prefsRef.current)) } catch {}
-      // build cfi -> chapter id map. EPUB section hrefs are null here, so map by index:
-      // 0=titlepage, 1=nav, 2=ch001 (empty placeholder), 3=ch002 (The Door)...
+      // SMOKE-1: build chapter-id -> section-index map. The previous approach
+      // used CFIs (epubcfi(/6/8) etc.) but foliate's CFI parser fails inside
+      // partsToNode for this EPUB — view.goTo(cfi) throws and the reader never
+      // navigates. Section indices are integers and don't have that problem.
+      // Each section's `id` looks like "EPUB/text/ch002.xhtml"; we extract
+      // the chXXX token so the map survives re-ordering of front-matter.
       if (view.book?.sections) {
-        const sections = view.book.sections
-        for (let i = 3; i < sections.length; i++) {
-          const chNum = i - 1
-          const cfi = sections[i]?.cfi
-          if (cfi) cfiMapRef.current[`ch${String(chNum).padStart(3, '0')}`] = cfi
-        }
+        view.book.sections.forEach((s, i) => {
+          const m = typeof s.id === 'string' ? /ch(\d{3})\.xhtml/i.exec(s.id) : null
+          if (m) sectionIndexMapRef.current[`ch${m[1]}`] = i
+        })
       }
       foliateReady.current = true
       // Rebuild the text map only when a section (chapter) loads — NOT on every
       // relocate/page-change, which would block the animation frame and stutter.
-      view.addEventListener('load', () => { buildSectionTextMap(); enforceSingleColumn() })
+      // CQ-7: store the handler in a ref so a future unmount or re-init could
+      // remove it. The previous anonymous handler was registered once and
+      // never removed — fine for a singleton app but fragile if openFoliateView
+      // is ever called twice.
+      loadHandlerRef.current = () => { buildSectionTextMap(); enforceSingleColumn() }
+      view.addEventListener('load', loadHandlerRef.current)
       buildSectionTextMap()
       if (pendingNav.current) {
-        const cfi = cfiMapRef.current[pendingNav.current]
-        if (cfi) view.goTo(cfi).catch(() => {})
+        const idx = sectionIndexMapRef.current[pendingNav.current]
+        if (typeof idx === 'number') view.renderer.goTo({ index: idx }).catch(() => {})
         pendingNav.current = null
       }
     } catch (e) {
@@ -519,8 +581,12 @@ export default function App() {
       pendingNav.current = chapter.id
       return
     }
-    const cfi = cfiMapRef.current[chapter.id]
-    if (cfi) view.goTo(cfi).catch(() => {})
+    // SMOKE-1: use renderer.goTo({index}) instead of view.goTo(cfi). The CFI
+    // form throws inside foliate's partsToNode for this EPUB; section indices
+    // are robust. See the map builder in openFoliateView for how the index is
+    // derived from each section's id.
+    const idx = sectionIndexMapRef.current[chapter.id]
+    if (typeof idx === 'number') view.renderer.goTo({ index: idx }).catch(() => {})
   }, [chapter])
 
   // ---- load audio when chapter changes ----
@@ -535,12 +601,18 @@ export default function App() {
     const seekTarget = pendingSeekRef.current
     pendingSeekRef.current = 0
     if (seekTarget > 0 && isFinite(seekTarget)) {
+      // CQ-3: stash the listener in a ref so the chapter-change effect can
+      // remove it if the user navigates away before metadata loads. Without
+      // this, a slow load from chapter A can fire applySeek after the user
+      // has moved to chapter B and reset B's audio.currentTime to A's value.
       const applySeek = () => {
         audio.currentTime = seekTarget
         setCurrentTime(seekTarget)
         saveProgress(currentIndex, seekTarget) // re-persist the restored position
         audio.removeEventListener('loadedmetadata', applySeek)
+        applySeekRef.current = null
       }
+      applySeekRef.current = applySeek
       audio.addEventListener('loadedmetadata', applySeek)
     }
     if (isPlaying) audio.play().catch(() => {})
@@ -687,6 +759,19 @@ export default function App() {
   }, [])
 
   if (loading) return <div className="loading">Loading…</div>
+  // CQ-11: surface manifest fetch / parse failures with a retry affordance
+  // instead of silently hanging on the loading screen.
+  if (manifestLoadError) {
+    return (
+      <div className="loading" role="alert">
+        <div>Couldn't load the book.</div>
+        <div className="loading-detail">{manifestLoadError}</div>
+        <button className="loading-retry" onClick={() => location.reload()}>
+          Retry
+        </button>
+      </div>
+    )
+  }
 
   return (
     <div className="app">
@@ -732,7 +817,12 @@ export default function App() {
         </aside>
 
         <main className="reader">
-          <foliate-view ref={viewCallbackRef} class="foliate-view" />
+          {/* CQ-1: catch throws from openFoliateView / buildTextMap /
+              highlightWord so a single malformed chapter doesn't white-
+              screen the whole app. */}
+          <ErrorBoundary>
+            <foliate-view ref={viewCallbackRef} class="foliate-view" />
+          </ErrorBoundary>
         </main>
       </div>
 

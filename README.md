@@ -65,9 +65,14 @@ npm run preview  # serve the production build
   the ref before the custom element is upgraded, and the open flow must run
   after the element exists. A `__openStarted` guard prevents double-open under
   StrictMode.
-- **Chapter navigation uses EPUB CFIs, not hrefs.** Pandoc EPUB section hrefs
-  resolve to `null` inside foliate, so a `chapter id → CFI` map is built from
-  `book.sections` (by index: 0=title, 1=nav, 2=ch001, 3=ch002=The Door…).
+- **Chapter navigation uses EPUB section indices, not CFIs or hrefs.** Pandoc
+  EPUB section hrefs resolve to `null` inside foliate, and CFIs (`epubcfi(/6/8)`)
+  throw inside foliate's `partsToNode` for this EPUB (the section-level CFI is
+  correct but foliate's anchor step fails on the body structure pandoc
+  produces). A `chapter id → section index` map is built from `book.sections`
+  by parsing each section's `id` (e.g. `EPUB/text/ch002.xhtml` → `ch002` →
+  index 3). Navigation then calls `view.renderer.goTo({ index })`, which works
+  correctly.
 - **`buildTextMap` inserts a space between adjacent text nodes** whose junction
   would otherwise merge two words (e.g. `"Door"+"The"` → `"DoorThe"`). Without
   this, the word matcher fails on every word that crosses a DOM boundary.
