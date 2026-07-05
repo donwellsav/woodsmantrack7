@@ -1,11 +1,10 @@
 // CQ-20: extracted from App.jsx so App.jsx can shrink below 800 lines and
 // SettingsPanel can be reviewed independently. Renders inline in the sidebar
 // (replaces the chapter list when the gear is active) — no modal/overlay.
-import { FONTS, FLOW_OPTS } from './prefs.js'
+import { FONTS } from './prefs.js'
 
 export default function SettingsPanel({ theme, setTheme, prefs, setPrefs }) {
   const fontEntries = Object.entries(FONTS)
-  const flowEntries = FLOW_OPTS
   return (
     // A11Y-04: id matches the gear's aria-controls; role=region + aria-labelledby
     // give the panel a landmark AT can find.
@@ -65,16 +64,12 @@ export default function SettingsPanel({ theme, setTheme, prefs, setPrefs }) {
       </div>
 
       <div className="settings-group">
-        <label className="settings-label">Page</label>
+        <label className="settings-label">Layout</label>
         <div className="option-row">
-          {flowEntries.map((f) => (
-            <button
-              key={f.id}
-              className={`option-btn ${prefs.flow === f.id ? 'active' : ''}`}
-              onClick={() => setPrefs(p => ({ ...p, flow: f.id }))}
-              aria-pressed={prefs.flow === f.id}
-            >{f.label}</button>
-          ))}
+          <button
+            className="option-btn active"
+            aria-pressed={true}
+          >Scroll</button>
         </div>
       </div>
 

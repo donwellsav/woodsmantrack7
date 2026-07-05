@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState, useCallback } from 'react'
 import ErrorBoundary from './ErrorBoundary.jsx'
 import SettingsPanel from './SettingsPanel.jsx'
-import { FONTS, FLOW_OPTS, loadPrefs } from './prefs.js'
+import { FONTS, loadPrefs } from './prefs.js'
 
 const EPUB_URL = '/book.epub'
 const MANIFEST_URL = '/chapters.json'
@@ -45,13 +45,9 @@ function readerCss(theme, prefs) {
   const font = FONTS[prefs?.font] || FONTS.iowan
   const size = prefs?.size ?? 19
   const lh = prefs?.lineHeight ?? 1.7
-  // In paginated mode, do NOT constrain body max-width — foliate's columnize()
-  // needs the body unconstrained to lay content out as page-sized columns.
-  // The 38em constraint is only for scrolled mode (centered reading column).
-  const flow = prefs?.flow ?? 'scrolled'
-  const bodyWidthRule = flow === 'paginated'
-    ? 'body { padding: 1em 1.2em !important; }'
-    : `body { max-width: 38em !important; margin: 0 auto !important; padding: 1em 1.2em !important; }
+  // Body is constrained to a single centered 38em column for the EPUB
+  // reader content (centered reading column).
+  const bodyWidthRule = `body { max-width: 38em !important; margin: 0 auto !important; padding: 1em 1.2em !important; }
        section, section.level1, .level1, section > * { max-width: 38em !important; margin-left: auto !important; margin-right: auto !important; }`
   return FONT_FACES + `
     html, body {
@@ -239,7 +235,7 @@ export default function App() {
     // switch the renderer's flow mode live; foliate re-renders the section
     const view = viewRef.current
     if (view?.renderer?.setAttribute) {
-      try { view.renderer.setAttribute('flow', prefs.flow) } catch {}
+      try { view.renderer.setAttribute('flow', 'scrolled') } catch {}
     }
     applyReaderCss()
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -506,20 +502,12 @@ export default function App() {
 
   // Force single-column layout on the EPUB body. The pandoc epub stylesheet
   // sets inline !important max-width: none on the body so it spans the full
-  // viewport (which is correct for paginated reading). For our narrow reader
-  // we explicitly cap it and the wrapping <section>.
+  // viewport. For our narrow reader we explicitly cap it and the wrapping
+  // <section>.
   // Constrain the EPUB body to a single centered column.
-  //
-  // IMPORTANT: only applies in 'scrolled' mode. In 'paginated' mode we must
-  // NOT touch the body's max-width — foliate's columnize() needs the body
-  // unconstrained so it can lay content out as a horizontal strip of page-
-  // sized columns. Setting max-width here in paginated mode makes the reader
-  // pane go blank.
   function enforceSingleColumn() {
     const view = viewRef.current
     if (!view?.renderer) return
-    // Skip entirely in paginated mode — let foliate handle the layout.
-    if (prefsRef.current.flow === 'paginated') return
     let docs
     try { docs = view.renderer.getContents() } catch { return }
     for (const d of docs || []) {
@@ -554,34 +542,24 @@ export default function App() {
       }
       const file = new File([blob], 'book.epub', { type: blob.type || 'application/epub+zip' })
       await view.open(file)
-      // continuous (scrolled) flow: one smooth native-scroll document per chapter
-      // instead of paginated page-turns — no transition to jank, and getContents()
+      // continuous scroll: one smooth native-scroll document per chapter
+      // — no transition to jank, and getContents()
       // returns the whole chapter so the text map builds once per chapter.
-      try { view.renderer.setAttribute('flow', prefsRef.current.flow) } catch {}
+      try { view.renderer.setAttribute('flow', 'scrolled') } catch {}
       // theme the reader's scroll container (it lives in the paginator's shadow
       // root, so inject a stylesheet there to style its scrollbar per theme).
-      // Also force single-page layout in paginated mode — foliate's default
-      // is a 2-page book spread (--_max-column-count-spread: 2), which shows
-      // two columns side by side. Overriding to 1 gives a single page.
       try {
         const sr = view.renderer.shadowRoot
         if (sr && !sr.getElementById('scrollbar-style')) {
           const s = document.createElement('style')
           s.id = 'scrollbar-style'
           s.textContent = `
-            #top { --_max-column-count: 1 !important; --_max-column-count-portrait: 1 !important; }
             #container { scrollbar-width: thin; scrollbar-color: var(--scroll-thumb) var(--scroll-track); }
             #container::-webkit-scrollbar { width: 12px; }
             #container::-webkit-scrollbar-track { background: var(--scroll-track); }
             #container::-webkit-scrollbar-thumb {
               background: var(--scroll-thumb); border-radius: 6px;
               border: 3px solid var(--scroll-track);
-            }
-            /* Paginated mode: kill ALL scroll. overflow:clip prevents
-               programmatic scrolling (overflow:hidden doesn't in Chrome). */
-            :host([flow="paginated"]) #container {
-              overflow: clip !important;
-              touch-action: none !important;
             }
           `
           sr.appendChild(s)
@@ -924,9 +902,7 @@ export default function App() {
     })
     win.CSS.highlights.set('sentence-hl', new win.Highlight(range))
 
-    // Scroll the sentence into view (throttled). Skipped in paginated mode
-    // — the user wants no movement at all, the page is static.
-    if (prefsRef.current.flow === 'paginated') return
+    // Scroll the sentence into view (throttled).
     const now = performance.now()
     if (now - lastScrollRef.current > 600) {
       lastScrollRef.current = now
