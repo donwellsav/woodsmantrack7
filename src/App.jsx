@@ -84,7 +84,7 @@ function initialTheme() {
     const saved = localStorage.getItem(THEME_KEY)
     if (saved === 'dark' || saved === 'light') return saved
   } catch {}
-  return window.matchMedia?.('(prefers-color-scheme: light)').matches ? 'light' : 'dark'
+  return 'dark'
 }
 
 // Reader preferences persisted to localStorage. Defaults are tuned for a
@@ -930,26 +930,21 @@ export default function App() {
           and land in the reader. Visually hidden until focused. */}
       <a href="#main-reader" className="skip-link">Skip to reader</a>
       <header className="topbar">
-        <button className="icon-btn" onClick={() => setSidebarOpen(o => !o)} aria-label={sidebarOpen ? 'Hide chapters' : 'Show chapters'} aria-pressed={sidebarOpen}>☰</button>
+        <button className="icon-btn sidebar-gear" onClick={() => setShowSettings(s => !s)} aria-label="Settings" aria-expanded={showSettings} aria-controls="settings-panel" title="Settings">
+          <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+            <circle cx="12" cy="12" r="3" />
+            <path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 1 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 1 1-4 0v-.09a1.65 1.65 0 0 0-1-1.51 1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 1 1-2.83-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 1 1 0-4h.09a1.65 1.65 0 0 0 1.51-1 1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 1 1 2.83-2.83l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 1 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 1 1 2.83 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 1 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z" />
+          </svg>
+        </button>
         <h1 className="book-title">{manifest.title}</h1>
-        {/* A11Y-06: screen-reader-friendly label + role=status so the badge
-            announces when sync activates between chapters. */}
         {syncAvailable && <span className="sync-badge" role="status" aria-label="Word-level sync enabled" title="Word-level sync enabled">sync</span>}
         <span className="spacer" />
       </header>
 
       <div className="main">
         <aside className={`sidebar ${sidebarOpen ? '' : 'closed'}`}>
-          <div className="sidebar-header sidebar-header-row">
-            {/* A11Y-07: real heading so screen-reader landmark nav can find
-                the chapter list (was a plain <span>). */}
+          <div className="sidebar-header">
             <h2 id="chapters-heading" className="sidebar-heading">Chapters</h2>
-            <button className="icon-btn sidebar-gear" onClick={() => setShowSettings(s => !s)} aria-label="Settings" aria-expanded={showSettings} aria-controls="settings-panel" title="Settings">
-              <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
-                <circle cx="12" cy="12" r="3" />
-                <path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 1 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 1 1-4 0v-.09a1.65 1.65 0 0 0-1-1.51 1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 1 1-2.83-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 1 1 0-4h.09a1.65 1.65 0 0 0 1.51-1 1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 1 1 2.83-2.83l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 1 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 1 1 2.83 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 1 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z" />
-              </svg>
-            </button>
           </div>
           {showSettings ? (
             <SettingsPanel
@@ -997,6 +992,7 @@ export default function App() {
 
       <footer className="player">
         <div className="player-chapter">
+          <button className="icon-btn" onClick={() => setSidebarOpen(o => !o)} aria-label={sidebarOpen ? 'Hide chapters' : 'Show chapters'} aria-pressed={sidebarOpen}>☰</button>
           <div className="player-chapter-title">{chapter?.title}</div>
           <div className="player-time">{fmt(currentTime)} / {fmt(duration)}</div>
         </div>
