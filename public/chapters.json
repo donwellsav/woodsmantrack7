@@ -18,7 +18,7 @@
     },
     {
       "id": "ch003",
-      "title": "Part I",
+      "title": "The Park",
       "epub_href": "text/ch003.xhtml",
       "audio": "03_The Park.mp3",
       "duration": 2.62,
@@ -66,7 +66,7 @@
     },
     {
       "id": "ch009",
-      "title": "Part II",
+      "title": "The God",
       "epub_href": "text/ch009.xhtml",
       "audio": "09_The God.mp3",
       "duration": 2.48,
@@ -122,7 +122,7 @@
     },
     {
       "id": "ch016",
-      "title": "Part III",
+      "title": "The Room",
       "epub_href": "text/ch016.xhtml",
       "audio": "16_The Room.mp3",
       "duration": 2.62,
@@ -186,7 +186,7 @@
     },
     {
       "id": "ch024",
-      "title": "Part IV",
+      "title": "The Bones",
       "epub_href": "text/ch024.xhtml",
       "audio": "24_The Bones.mp3",
       "duration": 2.44,
@@ -218,7 +218,7 @@
     },
     {
       "id": "ch028",
-      "title": "Part V",
+      "title": "The Showcase",
       "epub_href": "text/ch028.xhtml",
       "audio": "28_The Showcase.mp3",
       "duration": 2.9,

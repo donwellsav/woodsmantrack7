@@ -1088,7 +1088,16 @@ export default function App() {
                     >
                       <span className="chapter-title">{c.title}</span>
                       <span className="chapter-meta">
-                        {c.type === 'title-only' && <span className="badge" aria-label="Title-only chapter (no audio)">title</span>}
+                        {c.type === 'title-only' && (
+                          <span className="badge" aria-label="Part title only chapter (no audio)">
+                            {c.id === 'ch003' ? 'Part I'
+                              : c.id === 'ch009' ? 'Part II'
+                              : c.id === 'ch016' ? 'Part III'
+                              : c.id === 'ch024' ? 'Part IV'
+                              : c.id === 'ch028' ? 'Part V'
+                              : 'title'}
+                          </span>
+                        )}
                         {c.type === 'front-matter' && <span className="badge alt" aria-label="Front matter">intro</span>}
                         {fmt(c.duration)}
                       </span>
