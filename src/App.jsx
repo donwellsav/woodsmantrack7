@@ -72,6 +72,11 @@ function readerCss(theme, prefs) {
       box-shadow: 0 0 6px 1px ${t.glow}, 0 0 2px 0 ${t.glow} inset !important;
       border-radius: 2px !important;
     }
+    .sentence-hl {
+      background: ${t.hl} !important;
+      box-shadow: 0 0 12px -2px ${t.glow} !important;
+      border-radius: 2px !important;
+    }
   `
 }
 
@@ -776,29 +781,13 @@ export default function App() {
   // Highlight the entire sentence containing word index `idx`.
   // Wraps each word in the sentence range with its own <mark class="word-hl">
   // so words that cross DOM boundaries still get highlighted individually.
-  // Highlight the entire sentence containing word index `idx`.
-  // Wraps each word in the sentence in its own <mark class="word-hl"> so
-  // only the sentence words glow, not the whole paragraph.
+  // The whole sentence glows evenly; the spoken word is not singled out.
   function highlightWord(idx) {
-    // remove previous marks
-    for (const m of currentMarkRef.current) {
-      try {
-        const parent = m.parentNode
-        if (parent) {
-          while (m.firstChild) parent.insertBefore(m.firstChild, m)
-          parent.removeChild(m)
-          parent.normalize()
-        }
-      } catch {}
+    // remove previous highlight: clear the CSS class from old elements
+    for (const el of currentMarkRef.current) {
+      try { el.classList.remove('sentence-hl') } catch {}
     }
     currentMarkRef.current = []
-
-    // After unwrapping + normalize(), the text nodes are merged back, so
-    // the cached wordSpans (which point to individual text nodes) are stale.
-    // Rebuild the spans from the text map (cheap — textMapRef is still valid).
-    if (textMapRef.current && (timingsRef.current || timings)) {
-      mapWordsToDOM()
-    }
 
     const ws = wordSpansRef.current
     if (idx < 0 || idx >= ws.length) return
@@ -812,39 +801,36 @@ export default function App() {
       endIdx = sentences[sentIdx].end
     }
 
-    // Wrap each word in a <mark>. Process in REVERSE order (last word first)
-    // so that wrapping a word doesn't invalidate the text-node offsets of
-    // words that come after it in the same text node. surroundContents throws
-    // when the range crosses an element boundary — those words are skipped
-    // (same documented limitation as the original per-word highlight).
-    const doc = ws[startIdx]?.node?.ownerDocument || document
-    const marks = []
-    let firstMark = null
-    for (let i = endIdx; i >= startIdx; i--) {
+    // Instead of wrapping individual words in <mark> (which fails when words
+    // cross element boundaries), apply a CSS class to the block-level parent
+    // elements containing the sentence's words. This highlights the whole
+    // paragraph/block that the sentence lives in — one or two <p> elements —
+    // without any DOM mutation. Clean, fast, no stale refs.
+    const highlightedEls = new Set()
+    let firstEl = null
+    for (let i = startIdx; i <= endIdx; i++) {
       const span = ws[i]
-      if (!span) continue
-      try {
-        const textNode = span.node
-        if (!textNode || !textNode.parentNode) continue
-        const range = doc.createRange()
-        range.setStart(textNode, span.offset)
-        range.setEnd(textNode, Math.min(span.offset + span.length, textNode.textContent.length))
-        const mark = doc.createElement('mark')
-        mark.className = 'word-hl'
-        range.surroundContents(mark)
-        marks.push(mark)
-        firstMark = mark // last word processed (lowest index) for scroll target
-      } catch {}
+      if (!span?.node) continue
+      // Walk up to the nearest block element (p, div, li, h1-h6, section).
+      // Note: in XHTML iframes tagName may be lowercase, so test case-insensitively.
+      let el = span.node.parentElement
+      while (el && !/^(P|DIV|LI|H[1-6]|SECTION|BLOCKQUOTE)$/i.test(el.tagName)) {
+        el = el.parentElement
+      }
+      if (!el || highlightedEls.has(el)) continue
+      el.classList.add('sentence-hl')
+      highlightedEls.add(el)
+      if (!firstEl) firstEl = el
     }
-    currentMarkRef.current = marks
+    currentMarkRef.current = Array.from(highlightedEls)
 
     // Throttle scroll to once per ~600ms, respect reduced motion.
-    if (firstMark) {
+    if (firstEl) {
       const now = performance.now()
       if (now - lastScrollRef.current > 600) {
         lastScrollRef.current = now
         const reduced = window.matchMedia?.('(prefers-reduced-motion: reduce)').matches
-        firstMark.scrollIntoView({ block: 'center', behavior: reduced ? 'auto' : 'smooth' })
+        firstEl.scrollIntoView({ block: 'center', behavior: reduced ? 'auto' : 'smooth' })
       }
     }
   }
