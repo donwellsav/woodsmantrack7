@@ -31,13 +31,15 @@ const THEMES = {
 // @font-face rules embedded in the reader CSS so each EPUB iframe can load
 // the fonts from /fonts/* (same origin). These cover the three non-system
 // fonts exposed in settings; the others fall through to native stacks.
+// Use absolute URLs so @font-face resolves inside foliate's blob iframe.
+const FONT_ORIGIN = typeof window !== 'undefined' ? window.location.origin : ''
 const FONT_FACES = `
 @font-face { font-family: 'Lexend'; font-style: normal; font-weight: 400; font-display: swap;
-  src: url('/fonts/lexend-400.woff2') format('woff2'); }
+  src: url('${FONT_ORIGIN}/fonts/lexend-400.woff2') format('woff2'); }
 @font-face { font-family: 'Atkinson Hyperlegible'; font-style: normal; font-weight: 400; font-display: swap;
-  src: url('/fonts/atkinson-400.woff2') format('woff2'); }
+  src: url('${FONT_ORIGIN}/fonts/atkinson-400.woff2') format('woff2'); }
 @font-face { font-family: 'OpenDyslexic'; font-style: normal; font-weight: 400; font-display: swap;
-  src: url('/fonts/opendyslexic-400.woff2') format('woff2'); }
+  src: url('${FONT_ORIGIN}/fonts/opendyslexic-400.woff2') format('woff2'); }
 `
 
 function readerCss(theme, prefs) {

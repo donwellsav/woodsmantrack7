@@ -32,7 +32,7 @@ export const FONTS = {
   },
   serif: {
     label: 'System serif',
-    css: 'Georgia, "Times New Roman", serif',
+    css: '"Times New Roman", Times, serif',
     note: 'Native only',
   },
 }
