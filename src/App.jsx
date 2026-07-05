@@ -736,8 +736,11 @@ export default function App() {
     })
   }
   const onLoadedMeta = () => setDuration(audioRef.current?.duration || 0)
+  const advancingRef = useRef(false)
   const onEnded = () => {
     if (manifest && currentIndex < manifest.chapters.length - 1) {
+      // Flag that we're auto-advancing so onPause doesn't kill isPlaying.
+      advancingRef.current = true
       setCurrentIndex(i => i + 1)
     } else {
       setIsPlaying(false)
@@ -1038,7 +1041,10 @@ export default function App() {
         onLoadedMetadata={onLoadedMeta}
         onEnded={onEnded}
         onPlay={() => setIsPlaying(true)}
-        onPause={() => setIsPlaying(false)}
+        onPause={() => {
+          if (advancingRef.current) { advancingRef.current = false; return }
+          setIsPlaying(false)
+        }}
         aria-hidden="true"
       />
 
