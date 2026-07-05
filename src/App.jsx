@@ -781,14 +781,6 @@ export default function App() {
       if (targetSent !== lastWordIdxRef.current) {
         lastWordIdxRef.current = targetSent
         highlightWord(target)
-        // Paginated mode: when a new sentence begins, advance to the next
-        // page so the reader always shows the current sentence. Foliate's
-        // paginator handles the page swap (no scroll); buildSectionTextMap
-        // re-runs on the foliate 'load' event to refresh word spans.
-        if (prefsRef.current.flow === 'paginated') {
-          const r = viewRef.current?.renderer
-          if (r && typeof r.next === 'function') r.next().catch(() => {})
-        }
       }
     })
   }
