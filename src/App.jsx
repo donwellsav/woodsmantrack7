@@ -72,11 +72,6 @@ function readerCss(theme, prefs) {
       box-shadow: 0 0 6px 1px ${t.glow}, 0 0 2px 0 ${t.glow} inset !important;
       border-radius: 2px !important;
     }
-    .sentence-hl {
-      background: ${t.hl} !important;
-      box-shadow: 0 0 12px -2px ${t.glow} !important;
-      border-radius: 2px !important;
-    }
   `
 }
 
@@ -204,10 +199,8 @@ export default function App() {
   const applySeekRef = useRef(null)       // CQ-3: pending applySeek listener so chapter change can remove it
   const textMapRetriesRef = useRef(0)     // CQ-4: section-text-map retry counter, reset on chapter change
   const textMapRef = useRef(null)         // { fullText, posMap } for current section
-  const sentenceMapRef = useRef([])       // [{ start, end }] word-index range per sentence
-  const wordToSentenceRef = useRef([])    // wordIdx -> sentenceIdx reverse lookup
   const wordSpansRef = useRef([])         // [{node, offset, length}] per timing word
-  const currentMarkRef = useRef([])      // currently inserted <mark> elements (one per word in the active sentence)
+  const currentMarkRef = useRef(null)     // currently inserted <mark>
   const lastWordIdxRef = useRef(-1)
   const pendingSeekRef = useRef(0)         // audio seek target to restore on chapter load
   const lastSaveRef = useRef(0)            // throttle timestamp for progress saves
@@ -220,13 +213,7 @@ export default function App() {
   const isScrubbingRef = useRef(false)    // PERF-9: true while the user is dragging the seek slider
   const epubPromiseRef = useRef(null)     // PERF-10: preloaded EPUB Blob promise (parallel with manifest fetch)
 
-  useEffect(() => {
-    timingsRef.current = timings
-    // (Re)build sentence boundaries whenever timings change so the
-    // sentence-highlight lookup stays in sync with the current chapter.
-    buildSentenceMap(timings)
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [timings])
+  useEffect(() => { timingsRef.current = timings }, [timings])
   useEffect(() => {
     themeRef.current = theme
     try { localStorage.setItem(THEME_KEY, theme) } catch {}
@@ -458,38 +445,6 @@ export default function App() {
     if (gen !== chapterGenRef.current) return
     wordSpansRef.current = spans
     setSyncAvailable(spans.some(s => s !== null))
-    // Build the sentence map from the timings words so we can highlight
-    // whole sentences instead of single words.
-    buildSentenceMap(timingsRef.current || timings)
-  }
-
-  // Split the timings words into sentence ranges by walking the array and
-  // cutting on sentence-ending punctuation (., !, ?, .", ?", etc.).
-  // Stores results in sentenceMapRef + wordToSentenceRef for O(1) lookup.
-  function buildSentenceMap(t) {
-    if (!t || !t.words || !t.words.length) {
-      sentenceMapRef.current = []
-      wordToSentenceRef.current = []
-      return
-    }
-    const sentences = []
-    const wordToSentence = new Array(t.words.length)
-    let sentStart = 0
-    for (let i = 0; i < t.words.length; i++) {
-      const w = t.words[i].word
-      if (/[.!?]["')\]]?$/.test(w)) {
-        sentences.push({ start: sentStart, end: i })
-        for (let j = sentStart; j <= i; j++) wordToSentence[j] = sentences.length - 1
-        sentStart = i + 1
-      }
-    }
-    // trailing words without ending punctuation
-    if (sentStart < t.words.length) {
-      sentences.push({ start: sentStart, end: t.words.length - 1 })
-      for (let j = sentStart; j < t.words.length; j++) wordToSentence[j] = sentences.length - 1
-    }
-    sentenceMapRef.current = sentences
-    wordToSentenceRef.current = wordToSentence
   }
 
   // ---- build a flat text map for the current foliate-view section ----
@@ -751,20 +706,19 @@ export default function App() {
       const mid = (lo + hi) >> 1
       if (t.words[mid].start <= now) { idx = mid; lo = mid + 1 } else { hi = mid - 1 }
     }
-    // PERF-5: coalesce multiple timeupdates into a single rAF. Skip if the
-    // SENTENCE hasn't changed (not just the word) — the whole sentence glows
-    // evenly, so re-wrapping the same sentence is wasted DOM work.
-    const sentIdx = wordToSentenceRef.current[idx] ?? idx
-    if (sentIdx === lastWordIdxRef.current) return
+    // PERF-5: coalesce multiple timeupdates into a single rAF — at most one DOM
+    // mutation per animation frame. Browsers fire timeupdate ~4×/sec, so without
+    // this we'd get up to 4 highlightWord + scrollIntoView calls per second on
+    // the same word. If a frame is already scheduled, just bump its target idx.
+    if (idx === lastWordIdxRef.current) return
     rafIdxRef.current = idx
     if (rafHandleRef.current) return
     rafHandleRef.current = requestAnimationFrame(() => {
       rafHandleRef.current = 0
       const target = rafIdxRef.current
       rafIdxRef.current = -1
-      const targetSent = wordToSentenceRef.current[target] ?? target
-      if (targetSent !== lastWordIdxRef.current) {
-        lastWordIdxRef.current = targetSent
+      if (target !== lastWordIdxRef.current) {
+        lastWordIdxRef.current = target
         highlightWord(target)
       }
     })
@@ -778,61 +732,47 @@ export default function App() {
     }
   }
 
-  // Highlight the entire sentence containing word index `idx`.
-  // Wraps each word in the sentence range with its own <mark class="word-hl">
-  // so words that cross DOM boundaries still get highlighted individually.
-  // The whole sentence glows evenly; the spoken word is not singled out.
   function highlightWord(idx) {
-    // remove previous highlight: clear the CSS class from old elements
-    for (const el of currentMarkRef.current) {
-      try { el.classList.remove('sentence-hl') } catch {}
+    // remove previous mark
+    if (currentMarkRef.current) {
+      try {
+        const m = currentMarkRef.current
+        // PERF-5 / CQ-9: null-check parentNode — if the previous mark was
+        // detached by a section reload or a surrounding mutation, the unwrap
+        // would throw and currentMarkRef would point at a dead node forever.
+        const parent = m.parentNode
+        if (parent) {
+          while (m.firstChild) parent.insertBefore(m.firstChild, m)
+          parent.removeChild(m)
+          parent.normalize()
+        }
+      } catch {}
+      currentMarkRef.current = null
     }
-    currentMarkRef.current = []
-
     const ws = wordSpansRef.current
     if (idx < 0 || idx >= ws.length) return
-
-    // Resolve the word index to its sentence range.
-    const sentIdx = wordToSentenceRef.current[idx]
-    const sentences = sentenceMapRef.current
-    let startIdx = idx, endIdx = idx
-    if (sentences.length && sentIdx != null && sentences[sentIdx]) {
-      startIdx = sentences[sentIdx].start
-      endIdx = sentences[sentIdx].end
-    }
-
-    // Instead of wrapping individual words in <mark> (which fails when words
-    // cross element boundaries), apply a CSS class to the block-level parent
-    // elements containing the sentence's words. This highlights the whole
-    // paragraph/block that the sentence lives in — one or two <p> elements —
-    // without any DOM mutation. Clean, fast, no stale refs.
-    const highlightedEls = new Set()
-    let firstEl = null
-    for (let i = startIdx; i <= endIdx; i++) {
-      const span = ws[i]
-      if (!span?.node) continue
-      // Walk up to the nearest block element (p, div, li, h1-h6, section).
-      // Note: in XHTML iframes tagName may be lowercase, so test case-insensitively.
-      let el = span.node.parentElement
-      while (el && !/^(P|DIV|LI|H[1-6]|SECTION|BLOCKQUOTE)$/i.test(el.tagName)) {
-        el = el.parentElement
-      }
-      if (!el || highlightedEls.has(el)) continue
-      el.classList.add('sentence-hl')
-      highlightedEls.add(el)
-      if (!firstEl) firstEl = el
-    }
-    currentMarkRef.current = Array.from(highlightedEls)
-
-    // Throttle scroll to once per ~600ms, respect reduced motion.
-    if (firstEl) {
+    const span = ws[idx]
+    if (!span) return
+    try {
+      const textNode = span.node
+      if (!textNode || !textNode.parentNode) return
+      const range = document.createRange()
+      range.setStart(textNode, span.offset)
+      range.setEnd(textNode, Math.min(span.offset + span.length, textNode.textContent.length))
+      const mark = document.createElement('mark')
+      mark.className = 'word-hl'
+      range.surroundContents(mark)
+      currentMarkRef.current = mark
+      // PERF-5: throttle scrollIntoView to once per ~600ms so a long chapter
+      // doesn't keep restarting a smooth-scroll every word boundary.
+      // Respect prefers-reduced-motion (also closes A11Y-02).
       const now = performance.now()
       if (now - lastScrollRef.current > 600) {
         lastScrollRef.current = now
         const reduced = window.matchMedia?.('(prefers-reduced-motion: reduce)').matches
-        firstEl.scrollIntoView({ block: 'center', behavior: reduced ? 'auto' : 'smooth' })
+        mark.scrollIntoView({ block: 'center', behavior: reduced ? 'auto' : 'smooth' })
       }
-    }
+    } catch {}
   }
 
   const togglePlay = () => {
