@@ -519,11 +519,7 @@ export default function App() {
           #top {
             --_max-column-count-spread: 1 !important;
           }
-          :host([flow="paginated"]) #container {
-            overflow: hidden !important;
-            overscroll-behavior: contain !important;
-            touch-action: none !important;
-          }
+          :host([flow="paginated"]) #container { overflow: hidden !important; }
           :host([flow="paginated"]) #container > div { overflow: hidden !important; }
           :host([flow="paginated"]) #container iframe {
             overflow: hidden !important;
@@ -691,59 +687,6 @@ export default function App() {
     const idx = sectionIndexMapRef.current[chapter.id]
     if (typeof idx === 'number') view.renderer.goTo({ index: idx }).catch(() => {})
   }, [chapter, foliateReadyFlag])
-
-  // ---- Page mode: static page + click/keyboard to advance ----
-  // In paginated mode the reader must be completely static — no swiping,
-  // no trackpad scroll, no smooth animation. The page turns ONLY when the
-  // user clicks the right/left half of the reader or presses ArrowRight/
-  // ArrowLeft, and the turn is instant (no animation).
-  useEffect(() => {
-    const view = viewRef.current
-    if (!view?.renderer) return
-    if (prefs.flow !== 'paginated') return
-
-    const r = view.renderer
-    // Ensure the 'animated' attribute is absent so foliate's #scrollTo
-    // snaps instead of animating.
-    r.removeAttribute('animated')
-
-    const onWheel = (e) => { e.preventDefault(); e.stopPropagation() }
-    const onTouchMove = (e) => { e.preventDefault(); e.stopPropagation() }
-
-    // Click on left half = prev page, right half = next page.
-    const onClick = (e) => {
-      const rect = view.getBoundingClientRect()
-      const x = e.clientX - rect.left
-      if (x < rect.width / 2) r.prev()
-      else r.next()
-    }
-
-    // Arrow keys also turn pages.
-    const onKey = (e) => {
-      if (e.key === 'ArrowRight') { e.preventDefault(); r.next() }
-      else if (e.key === 'ArrowLeft') { e.preventDefault(); r.prev() }
-    }
-
-    // Attach wheel/touch blockers to the shadow container so the user
-    // can't scroll the page strip manually.
-    const sr = r.shadowRoot
-    const container = sr?.querySelector('#container')
-    if (container) {
-      container.addEventListener('wheel', onWheel, { passive: false })
-      container.addEventListener('touchmove', onTouchMove, { passive: false })
-    }
-    view.addEventListener('click', onClick)
-    window.addEventListener('keydown', onKey)
-
-    return () => {
-      if (container) {
-        container.removeEventListener('wheel', onWheel)
-        container.removeEventListener('touchmove', onTouchMove)
-      }
-      view.removeEventListener('click', onClick)
-      window.removeEventListener('keydown', onKey)
-    }
-  }, [prefs.flow, foliateReadyFlag, chapter])
 
   // ---- load audio when chapter changes ----
   useEffect(() => {
