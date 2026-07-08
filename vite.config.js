@@ -8,9 +8,11 @@ import fs from 'node:fs'
 // so the app can stream chapter MP3s without copying 1GB into the project.
 // Override with `WOODS_AUDIO_DIR=/path/to/mp3s npm run dev` to point at a
 // different folder without editing this file.
+const DEFAULT_AUDIO_DIR = path.resolve(__dirname, '..', 'ElevenLabs_woodsman_track_seven_6x9_kdp_v2_with_toc_docx')
+const FALLBACK_AUDIO_DIR = '/tmp/woodsman-audio' // downloaded from the GH release
 const AUDIO_DIR = process.env.WOODS_AUDIO_DIR
   ? path.resolve(process.env.WOODS_AUDIO_DIR)
-  : path.resolve(__dirname, '..', 'ElevenLabs_woodsman_track_seven_6x9_kdp_v2_with_toc_docx')
+  : (fs.existsSync(DEFAULT_AUDIO_DIR) ? DEFAULT_AUDIO_DIR : FALLBACK_AUDIO_DIR)
 
 // Parse a Range: bytes=START-END header. Returns { start, end } inclusive, or
 // null if the header is absent or malformed.

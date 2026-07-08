@@ -3,14 +3,16 @@ import ErrorBoundary from './ErrorBoundary.jsx'
 import SettingsPanel from './SettingsPanel.jsx'
 import { FONTS, FLOW_OPTS, loadPrefs } from './prefs.js'
 
-// In production, audio is served from GitHub Releases (large files).
+// In production, audio is served from Cloudflare R2 via a custom domain
+// (audio.donewellbooks.com) bound to the woodsman-audio bucket. R2 gives us
+// zero egress fees, global CDN, and native Range/206 support for seeking.
 // In dev, the Vite middleware streams from the sibling ElevenLabs folder.
 const EPUB_URL = (typeof window !== 'undefined' && window.location.hostname === 'localhost')
   ? '/book.epub' : './book.epub'
 const MANIFEST_URL = (typeof window !== 'undefined' && window.location.hostname === 'localhost')
   ? '/chapters.json' : './chapters.json'
 const AUDIO_BASE = (typeof window !== 'undefined' && window.location.hostname === 'localhost')
-  ? '/audio' : 'https://github.com/donwellsav/woodsmantrack7/releases/download/v1.0-audio'
+  ? '/audio' : 'https://audio.donewellbooks.com'
 const PROGRESS_KEY = 'woodsman-progress-v1'
 const THEME_KEY = 'woodsman-theme-v1'
 const SAVE_INTERVAL_MS = 3000 // throttle audio-position saves
