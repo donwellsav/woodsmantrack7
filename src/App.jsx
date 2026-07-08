@@ -3,9 +3,14 @@ import ErrorBoundary from './ErrorBoundary.jsx'
 import SettingsPanel from './SettingsPanel.jsx'
 import { FONTS, FLOW_OPTS, loadPrefs } from './prefs.js'
 
-const EPUB_URL = '/book.epub'
-const MANIFEST_URL = '/chapters.json'
-const AUDIO_BASE = '/audio'
+// In production, audio is served from GitHub Releases (large files).
+// In dev, the Vite middleware streams from the sibling ElevenLabs folder.
+const EPUB_URL = (typeof window !== 'undefined' && window.location.hostname === 'localhost')
+  ? '/book.epub' : './book.epub'
+const MANIFEST_URL = (typeof window !== 'undefined' && window.location.hostname === 'localhost')
+  ? '/chapters.json' : './chapters.json'
+const AUDIO_BASE = (typeof window !== 'undefined' && window.location.hostname === 'localhost')
+  ? '/audio' : 'https://github.com/donwellsav/woodsmantrack7/releases/download/v1.0-audio'
 const PROGRESS_KEY = 'woodsman-progress-v1'
 const THEME_KEY = 'woodsman-theme-v1'
 const SAVE_INTERVAL_MS = 3000 // throttle audio-position saves
@@ -180,6 +185,7 @@ export default function App() {
   const swUpdateRef = useRef(null)
   const [manifestLoadError, setManifestLoadError] = useState(null)  // CQ-11
   const [sidebarOpen, setSidebarOpen] = useState(true)
+  const [audioCacheProgress, setAudioCacheProgress] = useState(null) // null=idle, {done,total}=downloading
   // (syncAvailable removed — sync badge is no longer shown)
   const [timings, setTimings] = useState(null)
   const [theme, setTheme] = useState(initialTheme)
@@ -249,6 +255,30 @@ export default function App() {
     applyReaderCss()
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [prefs])
+
+  // Download all audio files into the browser's Cache API for offline use.
+  // Fetches each chapter MP3 one at a time, updates progress state.
+  async function downloadAllAudio() {
+    if (!manifest?.chapters) return
+    const chapters = manifest.chapters.filter(c => c.audio)
+    const cache = await caches.open('audio-offline')
+    setAudioCacheProgress({ done: 0, total: chapters.length })
+    for (let i = 0; i < chapters.length; i++) {
+      try {
+        const url = `${AUDIO_BASE}/${chapters[i].audio}`
+        // Check if already cached
+        const cached = await cache.match(url)
+        if (!cached) {
+          const res = await fetch(url)
+          if (res.ok) await cache.put(url, res.clone())
+        }
+        setAudioCacheProgress({ done: i + 1, total: chapters.length })
+      } catch (e) {
+        console.warn('audio cache failed for', chapters[i].audio, e)
+      }
+    }
+    setAudioCacheProgress(null)
+  }
 
   function applyReaderCss() {
     // PERF-6: debounce so rapid +/- clicks (size, lineHeight) coalesce into a
@@ -1190,6 +1220,8 @@ export default function App() {
             <SettingsPanel
               theme={theme} setTheme={setTheme}
               prefs={prefs} setPrefs={setPrefs}
+              audioCacheProgress={audioCacheProgress}
+              onDownloadAudio={downloadAllAudio}
             />
           ) : (
             // A11Y-07: wrap the chapter list in a <nav> with aria-labelledby

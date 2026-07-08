@@ -143,4 +143,7 @@ export default defineConfig({
       },
     }),
   ],
+  // GitHub Pages serves at /woodsmantrack7/, not /. All asset URLs must
+  // be prefixed with the repo name so they resolve correctly.
+  base: process.env.GITHUB_PAGES ? '/woodsmantrack7/' : '/',
 })

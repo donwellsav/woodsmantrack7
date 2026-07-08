@@ -3,7 +3,7 @@
 // (replaces the chapter list when the gear is active) — no modal/overlay.
 import { FONTS, FLOW_OPTS } from './prefs.js'
 
-export default function SettingsPanel({ theme, setTheme, prefs, setPrefs }) {
+export default function SettingsPanel({ theme, setTheme, prefs, setPrefs, audioCacheProgress, onDownloadAudio }) {
   const fontEntries = Object.entries(FONTS)
   const flowEntries = FLOW_OPTS
   return (
@@ -92,6 +92,21 @@ export default function SettingsPanel({ theme, setTheme, prefs, setPrefs }) {
             aria-pressed={prefs.clickToSeek}
           >On</button>
         </div>
+      </div>
+
+      <div className="settings-group">
+        <label className="settings-label">Offline audio</label>
+        {audioCacheProgress ? (
+          <div className="audio-download-progress">
+            Downloading… {audioCacheProgress.done} / {audioCacheProgress.total}
+          </div>
+        ) : (
+          <button
+            className="option-btn"
+            style={{ width: '100%', padding: '8px' }}
+            onClick={onDownloadAudio}
+          >Download all audio for offline</button>
+        )}
       </div>
     </div>
   )
