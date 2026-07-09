@@ -49,7 +49,7 @@ export function loadPrefs() {
     const p = JSON.parse(localStorage.getItem('woodsman-prefs-v1') || '{}')
     return {
       font: FONTS[p.font] ? p.font : 'iowan',
-      size: typeof p.size === 'number' && p.size >= 16 && p.size <= 32 ? p.size : 19,
+      size: typeof p.size === 'number' && p.size >= 12 && p.size <= 40 ? p.size : 19,
       flow: p.flow === 'paginated' ? 'paginated' : 'scrolled',
       lineHeight: typeof p.lineHeight === 'number' && p.lineHeight >= 1.3 && p.lineHeight <= 2.2 ? p.lineHeight : 1.7,
       clickToSeek: p.clickToSeek === true,
