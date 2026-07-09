@@ -128,7 +128,7 @@ body {
 .sidebar-gear:active { background: var(--accent); color: var(--on-accent); }
 .sidebar-gear[aria-expanded='true'] { color: var(--accent); }
 
-.main { flex: 1; display: flex; min-height: 0; }
+.main { flex: 1; display: flex; min-height: 0; position: relative; }
 
 .sidebar {
   width: 280px; min-width: 280px;
@@ -306,11 +306,11 @@ body {
 }
 
 @media (max-width: 720px) {
-  .sidebar { position: absolute; z-index: 10; top: calc(52px + env(safe-area-inset-top)); height: calc(100% - 52px - env(safe-area-inset-top)); box-shadow: var(--shadow); }
+  .sidebar { position: absolute; z-index: 10; top: 0; height: 100%; box-shadow: var(--shadow); }
   .sidebar:not(.closed) + .sidebar-backdrop {
     display: block;
     position: absolute;
-    inset: calc(52px + env(safe-area-inset-top)) 0 0 0;
+    inset: 0;
     background: rgba(0, 0, 0, 0.35);
     z-index: 9;
   }
