@@ -183,6 +183,11 @@ const IconPause = () => (
 const IconNext = () => (
   <svg viewBox="0 0 24 24" width="20" height="20" fill="currentColor" aria-hidden="true"><path d="M7 6l8 6-8 6V6zM17 6v12" /></svg>
 )
+const IconChevron = ({ direction = 'up' }) => (
+  <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true" style={{ transform: direction === 'down' ? 'rotate(180deg)' : 'none' }}>
+    <polyline points="18 15 12 9 6 15" />
+  </svg>
+)
 
 export default function App() {
   const [manifest, setManifest] = useState(null)
@@ -204,6 +209,9 @@ export default function App() {
   const [manifestLoadError, setManifestLoadError] = useState(null)  // CQ-11
   const isMobile = () => typeof window !== 'undefined' && window.matchMedia('(max-width: 720px)').matches
   const [sidebarOpen, setSidebarOpen] = useState(!isMobile())
+  // UX-03: on mobile, the seek slider lives in a collapsible accordion so the
+  // player bar can stay compact and the slider only takes full width when open.
+  const [seekExpanded, setSeekExpanded] = useState(false)
   // UX-01: when the user resizes to mobile, collapse the sidebar so it doesn't
   // cover the reader content. Re-open when resizing back to desktop only if the
   // user didn't explicitly close it themselves.
@@ -1239,6 +1247,36 @@ export default function App() {
     )
   }
 
+  const seekSlider = (
+    <input
+      className="seek"
+      type="range" min={0} max={duration || 0} value={currentTime}
+      aria-label="Seek audio position"
+      onPointerDown={() => { isScrubbingRef.current = true }}
+      onPointerUp={() => {
+        // PERF-9: only commit the actual audio.currentTime at pointer-up so
+        // dragging the slider doesn't queue dozens of seeks (each can force
+        // a re-download of bytes from the SW cache).
+        isScrubbingRef.current = false
+        if (audioRef.current) audioRef.current.currentTime = currentTime
+        lastWordIdxRef.current = -1
+        onTimeUpdate()
+      }}
+      onChange={(e) => {
+        const t = parseFloat(e.target.value)
+        // While dragging, just update state for the slider thumb; the audio
+        // seek happens on pointer-up above. Outside a drag (keyboard),
+        // commit immediately.
+        setCurrentTime(t)
+        if (!isScrubbingRef.current && audioRef.current) {
+          audioRef.current.currentTime = t
+          lastWordIdxRef.current = -1
+          onTimeUpdate()
+        }
+      }}
+    />
+  )
+
   return (
     <div className="app">
       {/* A11Y-23: visually-hidden aria-live region so screen readers announce
@@ -1326,46 +1364,52 @@ export default function App() {
         </main>
       </div>
 
+      {/* UX-03: mobile accordion seek panel. Opens above the player and spans the full width for easy scrubbing. */}
+      <div className={`seek-accordion ${seekExpanded ? 'open' : ''}`} id="seek-panel">
+        <div className="seek-accordion-inner">
+          <div className="seek-accordion-header">
+            <span className="seek-accordion-time">{fmt(currentTime)}</span>
+            <button
+              className="icon-btn seek-collapse"
+              onClick={() => setSeekExpanded(false)}
+              aria-label="Collapse seek slider"
+              aria-expanded={seekExpanded}
+              aria-controls="seek-panel"
+            >
+              <IconChevron direction="down" />
+            </button>
+            <span className="seek-accordion-time">{fmt(duration)}</span>
+          </div>
+          {seekSlider}
+        </div>
+      </div>
+
       <footer className="player">
-        <div className="player-chapter">
-          <button className="icon-btn" onClick={() => { setShowSettings(false); setSidebarOpen(o => !o) }} aria-label={sidebarOpen && !showSettings ? 'Hide chapters' : 'Show chapters'} aria-pressed={sidebarOpen && !showSettings}><IconMenu /></button>
-          <div className="player-chapter-title">{chapter?.title}</div>
-          <div className="player-time">{fmt(currentTime)} / {fmt(duration)}</div>
+        <div className="player-top">
+          <div className="player-chapter">
+            <button className="icon-btn" onClick={() => { setShowSettings(false); setSidebarOpen(o => !o) }} aria-label={sidebarOpen && !showSettings ? 'Hide chapters' : 'Show chapters'} aria-pressed={sidebarOpen && !showSettings}><IconMenu /></button>
+            <div className="player-chapter-title">{chapter?.title}</div>
+            <div className="player-time">{fmt(currentTime)} / {fmt(duration)}</div>
+          </div>
+          <div className="player-controls">
+            <button className="icon-btn" onClick={prev} aria-label="Previous chapter"><IconPrev /></button>
+            <button className="play-btn" onClick={togglePlay} aria-label={isPlaying ? 'Pause' : 'Play'} aria-pressed={isPlaying}>
+              {isPlaying ? <IconPause /> : <IconPlay />}
+            </button>
+            <button className="icon-btn" onClick={next} aria-label="Next chapter"><IconNext /></button>
+          </div>
         </div>
-        <div className="player-controls">
-          <button className="icon-btn" onClick={prev} aria-label="Previous chapter"><IconPrev /></button>
-          <button className="play-btn" onClick={togglePlay} aria-label={isPlaying ? 'Pause' : 'Play'} aria-pressed={isPlaying}>
-            {isPlaying ? <IconPause /> : <IconPlay />}
-          </button>
-          <button className="icon-btn" onClick={next} aria-label="Next chapter"><IconNext /></button>
-        </div>
-        <input
-          className="seek"
-          type="range" min={0} max={duration || 0} value={currentTime}
-          aria-label="Seek audio position"
-          onPointerDown={() => { isScrubbingRef.current = true }}
-          onPointerUp={() => {
-            // PERF-9: only commit the actual audio.currentTime at pointer-up so
-            // dragging the slider doesn't queue dozens of seeks (each can force
-            // a re-download of bytes from the SW cache).
-            isScrubbingRef.current = false
-            if (audioRef.current) audioRef.current.currentTime = currentTime
-            lastWordIdxRef.current = -1
-            onTimeUpdate()
-          }}
-          onChange={(e) => {
-            const t = parseFloat(e.target.value)
-            // While dragging, just update state for the slider thumb; the audio
-            // seek happens on pointer-up above. Outside a drag (keyboard),
-            // commit immediately.
-            setCurrentTime(t)
-            if (!isScrubbingRef.current && audioRef.current) {
-              audioRef.current.currentTime = t
-              lastWordIdxRef.current = -1
-              onTimeUpdate()
-            }
-          }}
-        />
+        <div className="seek-desktop">{seekSlider}</div>
+        <button
+          className="seek-toggle mobile-only"
+          onClick={() => setSeekExpanded(true)}
+          aria-expanded={seekExpanded}
+          aria-controls="seek-panel"
+          aria-label="Open seek slider"
+        >
+          <IconChevron direction="up" />
+          <span className="seek-toggle-time">{fmt(currentTime)} / {fmt(duration)}</span>
+        </button>
       </footer>
 
       <audio
