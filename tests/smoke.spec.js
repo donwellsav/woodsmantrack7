@@ -19,6 +19,18 @@ async function readerIsReady(page) {
   })
 }
 
+async function rendererFlow(page) {
+  return page.locator('foliate-view').evaluate(view =>
+    view.renderer?.getAttribute?.('flow') ?? null)
+}
+
+async function openSettings(page) {
+  const button = page.getByRole('button', { name: 'Settings' })
+  await button.click()
+  if (await button.getAttribute('aria-expanded') !== 'true') await button.click()
+  await expect(page.getByRole('region', { name: 'Reading settings' })).toBeVisible()
+}
+
 test.describe('reader lifecycle', () => {
   test('selecting The Door keeps its real text and player controls visible', async ({ page }) => {
     let releaseEpub
@@ -68,5 +80,36 @@ test.describe('reader lifecycle', () => {
     const readyView = await reader.locator('foliate-view').elementHandle()
     expect(await readyView.evaluate((view, previousView) => view !== previousView, failedView)).toBe(true)
     expect(epubRequests).toBe(2)
+  })
+})
+
+test.describe('preferences', () => {
+  test('Manual persists while Foliate stays in scrolled flow', async ({ page }) => {
+    await page.goto('/')
+    await expect.poll(() => readerIsReady(page)).toBe(true)
+    await openSettings(page)
+
+    await page.getByRole('button', { name: 'Manual' }).click()
+
+    await expect.poll(() => page.evaluate(() =>
+      JSON.parse(localStorage.getItem('woodsman-prefs-v1')).flow)).toBe('manual')
+    await expect.poll(() => rendererFlow(page)).toBe('scrolled')
+
+    await page.reload()
+    await expect.poll(() => readerIsReady(page)).toBe(true)
+    await expect.poll(() => rendererFlow(page)).toBe('scrolled')
+    await openSettings(page)
+    await expect(page.getByRole('button', { name: 'Manual' })).toHaveAttribute('aria-pressed', 'true')
+    expect(await page.evaluate(() =>
+      JSON.parse(localStorage.getItem('woodsman-prefs-v1')).flow)).toBe('manual')
+  })
+
+  test('settings omit the false offline audio control', async ({ page }) => {
+    await page.goto('/')
+    await openSettings(page)
+
+    const settings = page.getByRole('region', { name: 'Reading settings' })
+    await expect(settings.getByText(/offline/i)).toHaveCount(0)
+    await expect(settings.getByRole('button', { name: /download.*audio/i })).toHaveCount(0)
   })
 })

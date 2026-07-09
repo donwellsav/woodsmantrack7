@@ -11,7 +11,7 @@ highlighting each word in the reader as the narration reaches it.
 - **Word-level sync** — as the narration plays, the currently-spoken word is
   highlighted and scrolled into view in the reader (~99.7% word match rate).
 - **Media Session API** — lock-screen / media-key controls + chapter metadata.
-- **PWA** — installable, offline-capable (book, timings, and visited audio cached).
+- **PWA** — installable.
 
 ## Source assets
 

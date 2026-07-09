@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState, useCallback } from 'react'
 import ErrorBoundary from './ErrorBoundary.jsx'
 import SettingsPanel from './SettingsPanel.jsx'
-import { FONTS, FLOW_OPTS, loadPrefs } from './prefs.js'
+import { FONTS, loadPrefs, rendererFlow } from './prefs.js'
 
 // In production, audio is served from Cloudflare R2 via a custom domain
 // (audio.donewellbooks.com) bound to the woodsman-audio bucket. R2 gives us
@@ -245,7 +245,6 @@ export default function App() {
     mq.addEventListener('change', onChange)
     return () => mq.removeEventListener('change', onChange)
   }, [])
-  const [audioCacheProgress, setAudioCacheProgress] = useState(null) // null=idle, {done,total}=downloading
   // (syncAvailable removed — sync badge is no longer shown)
   const [timings, setTimings] = useState(null)
   const [theme, setTheme] = useState(initialTheme)
@@ -310,35 +309,11 @@ export default function App() {
     // switch the renderer's flow mode live; foliate re-renders the section
     const view = viewRef.current
     if (view?.renderer?.setAttribute) {
-      try { view.renderer.setAttribute('flow', prefs.flow) } catch {}
+      try { view.renderer.setAttribute('flow', rendererFlow(prefs.flow)) } catch {}
     }
     applyReaderCss()
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [prefs])
-
-  // Download all audio files into the browser's Cache API for offline use.
-  // Fetches each chapter MP3 one at a time, updates progress state.
-  async function downloadAllAudio() {
-    if (!manifest?.chapters) return
-    const chapters = manifest.chapters.filter(c => c.audio)
-    const cache = await caches.open('audio-offline')
-    setAudioCacheProgress({ done: 0, total: chapters.length })
-    for (let i = 0; i < chapters.length; i++) {
-      try {
-        const url = `${AUDIO_BASE}/${chapters[i].audio}`
-        // Check if already cached
-        const cached = await cache.match(url)
-        if (!cached) {
-          const res = await fetch(url)
-          if (res.ok) await cache.put(url, res.clone())
-        }
-        setAudioCacheProgress({ done: i + 1, total: chapters.length })
-      } catch (e) {
-        console.warn('audio cache failed for', chapters[i].audio, e)
-      }
-    }
-    setAudioCacheProgress(null)
-  }
 
   function applyReaderCss() {
     // PERF-6: debounce so rapid +/- clicks (size, lineHeight) coalesce into a
@@ -759,7 +734,7 @@ export default function App() {
       // continuous scroll: one smooth native-scroll document per chapter
       // — no transition to jank, and getContents()
       // returns the whole chapter so the text map builds once per chapter.
-      try { view.renderer.setAttribute('flow', prefsRef.current.flow) } catch {}
+      try { view.renderer.setAttribute('flow', rendererFlow(prefsRef.current.flow)) } catch {}
       // theme the reader's scroll container (it lives in the paginator's shadow
       // root, so inject a stylesheet there to style its scrollbar per theme).
       try {
@@ -1290,7 +1265,6 @@ export default function App() {
     import('virtual:pwa-register').then(({ registerSW }) => {
       off = registerSW({
         onNeedRefresh() { setUpdateAvailable(true) },
-        onOfflineReady() { /* silent — offline readiness is the default expectation */ },
         onRegisteredSW(url, reg) {
           // Stash the update function so the toast's "Reload" button can
           // trigger it. registerSW returns this via the second arg only in
@@ -1330,8 +1304,7 @@ export default function App() {
       onPointerDown={() => { isScrubbingRef.current = true }}
       onPointerUp={() => {
         // PERF-9: only commit the actual audio.currentTime at pointer-up so
-        // dragging the slider doesn't queue dozens of seeks (each can force
-        // a re-download of bytes from the SW cache).
+        // dragging the slider doesn't queue dozens of redundant seeks.
         isScrubbingRef.current = false
         if (audioRef.current) audioRef.current.currentTime = currentTime
         lastWordIdxRef.current = -1
@@ -1384,8 +1357,6 @@ export default function App() {
             <SettingsPanel
               theme={theme} setTheme={setTheme}
               prefs={prefs} setPrefs={setPrefs}
-              audioCacheProgress={audioCacheProgress}
-              onDownloadAudio={downloadAllAudio}
             />
           ) : (
             // A11Y-07: wrap the chapter list in a <nav> with aria-labelledby
