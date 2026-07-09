@@ -9,7 +9,6 @@ export function parseProgress(value) {
       currentTime: Number.isFinite(saved.currentTime) && saved.currentTime >= 0 ? saved.currentTime : 0,
       chapters: saved.chapters && typeof saved.chapters === 'object' && !Array.isArray(saved.chapters) ? saved.chapters : {},
     }
-    if (Number.isFinite(saved.updatedAt)) progress.updatedAt = saved.updatedAt
     return progress
   } catch {
     return { currentIndex: 0, currentTime: 0, chapters: {} }

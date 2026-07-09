@@ -20,7 +20,6 @@ test('updateProgress marks a finished chapter complete', () => {
     currentIndex: 1,
     currentTime: 90,
     duration: 90,
-    completed: true,
   })
 
   assert.equal(progress.currentIndex, 1)
