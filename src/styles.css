@@ -48,7 +48,18 @@
    overkill (masked focus-ring rendering on some browsers) and the universal
    radius reset was not actually desired — components should set their own
    radii. Removed both. Focus visibility lives in :focus-visible below. */
-* { box-sizing: border-box; margin: 0; padding: 0; }
+* { box-sizing: border-box; margin: 0; padding: 0; -webkit-tap-highlight-color: transparent; }
+
+/* UX-02: kill default mobile browser styling (orange tap highlights, glossy
+   iOS buttons) so every interactive element stays inside the app color scheme. */
+button, input[type="button"], input[type="submit"] {
+  -webkit-appearance: none;
+  appearance: none;
+  background: none;
+  border: none;
+  font: inherit;
+  color: inherit;
+}
 
 /* A11Y-01: focus-visible ring for keyboard navigation. :focus-visible only
    triggers for keyboard / AT interaction, not mouse clicks — so mouse users
@@ -88,10 +99,10 @@ body {
 /* topbar — no settings here; sidebar owns it */
 .topbar {
   display: flex; align-items: center; gap: 12px;
-  padding: 0 16px; height: 52px; min-height: 52px;
+  padding: env(safe-area-inset-top) 16px 0 16px;
+  height: auto; min-height: calc(52px + env(safe-area-inset-top));
   background: var(--bar-bg); border-bottom: 1px solid var(--border);
   color: var(--bar-fg);
-  padding-top: env(safe-area-inset-top);
 }
 .book-title {
   font-size: 0.95rem; font-weight: 600; letter-spacing: 0.2px;
@@ -106,13 +117,15 @@ body {
   font-size: 1.2rem; cursor: pointer; padding: 6px 8px;
   transition: background 0.15s ease, color 0.15s ease;
   display: inline-flex; align-items: center; justify-content: center;
+  /* UX-02: minimum 44x44 touch target (A11Y-11). */
+  min-width: 44px; min-height: 44px;
 }
 .icon-btn:hover { background: rgba(255, 255, 255, 0.12); }
+.icon-btn:active { background: var(--accent); color: var(--on-accent); }
 .icon-btn svg { display: block; }
-.sidebar-gear { color: var(--text-dim); padding: 4px 6px; }
-/* A11Y-11: bump sidebar-gear to a 44x44 touch target (was 28x28). */
-.sidebar-gear { min-width: 44px; min-height: 44px; }
+.sidebar-gear { color: var(--text-dim); }
 .sidebar-gear:hover { color: var(--text); background: rgba(0,0,0,0.06); }
+.sidebar-gear:active { background: var(--accent); color: var(--on-accent); }
 .sidebar-gear[aria-expanded='true'] { color: var(--accent); }
 
 .main { flex: 1; display: flex; min-height: 0; }
@@ -124,6 +137,7 @@ body {
   color: var(--text);
   scrollbar-width: thin;
   scrollbar-color: var(--scroll-thumb) var(--scroll-track);
+  padding-left: env(safe-area-inset-left);
 }
 .sidebar::-webkit-scrollbar { width: 10px; }
 .sidebar::-webkit-scrollbar-track { background: var(--scroll-track); }
@@ -173,7 +187,10 @@ body {
 
 .player {
   display: flex; align-items: center; gap: 16px;
-  padding: 10px 16px; padding-bottom: calc(10px + env(safe-area-inset-bottom));
+  padding: 10px 16px;
+  padding-bottom: calc(10px + env(safe-area-inset-bottom));
+  padding-left: calc(16px + env(safe-area-inset-left));
+  padding-right: calc(16px + env(safe-area-inset-right));
   background: var(--bar-bg); border-top: 1px solid var(--border);
   color: var(--bar-fg);
   min-height: 64px;
@@ -190,10 +207,10 @@ body {
   width: 44px; height: 44px; border: none;
   background: var(--btn-bg); color: var(--btn-fg); font-size: 1.1rem;
   cursor: pointer; display: flex; align-items: center; justify-content: center;
-  transition: background 0.15s ease, transform 0.1s ease;
+  transition: background 0.15s ease, transform 0.1s ease, color 0.15s ease;
 }
 .play-btn:hover { filter: brightness(0.95); }
-.play-btn:active { transform: scale(0.95); }
+.play-btn:active { background: var(--accent); color: var(--on-accent); transform: scale(0.95); }
 /* Glow while playing — matches the sidebar/reader glow treatment */
 .play-btn[aria-pressed="true"] {
   background: var(--glow);
@@ -289,15 +306,19 @@ body {
 }
 
 @media (max-width: 720px) {
-  .sidebar { position: absolute; z-index: 10; height: calc(100% - 52px); box-shadow: var(--shadow); }
+  .sidebar { position: absolute; z-index: 10; top: calc(52px + env(safe-area-inset-top)); height: calc(100% - 52px - env(safe-area-inset-top)); box-shadow: var(--shadow); }
   .sidebar:not(.closed) + .sidebar-backdrop {
     display: block;
     position: absolute;
-    inset: 52px 0 0 0;
+    inset: calc(52px + env(safe-area-inset-top)) 0 0 0;
     background: rgba(0, 0, 0, 0.35);
     z-index: 9;
   }
+  .player { gap: 10px; }
   .player-chapter { width: 130px; }
+  .chapter-item { padding: 12px 16px; }
+  .seek::-webkit-slider-thumb { width: 18px; height: 18px; }
+  .seek::-moz-range-thumb { width: 18px; height: 18px; }
 }
 /* PERF-7: PWA update prompt toast. Surfaced when vite-plugin-pwa detects a
    waiting SW (new bundle deployed). Stays out of the way until the user
