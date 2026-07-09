@@ -186,7 +186,17 @@ export default function App() {
   const [updateAvailable, setUpdateAvailable] = useState(false)
   const swUpdateRef = useRef(null)
   const [manifestLoadError, setManifestLoadError] = useState(null)  // CQ-11
-  const [sidebarOpen, setSidebarOpen] = useState(true)
+  const isMobile = () => typeof window !== 'undefined' && window.matchMedia('(max-width: 720px)').matches
+  const [sidebarOpen, setSidebarOpen] = useState(!isMobile())
+  // UX-01: when the user resizes to mobile, collapse the sidebar so it doesn't
+  // cover the reader content. Re-open when resizing back to desktop only if the
+  // user didn't explicitly close it themselves.
+  useEffect(() => {
+    const mq = window.matchMedia('(max-width: 720px)')
+    const onChange = (e) => { if (e.matches) setSidebarOpen(false) }
+    mq.addEventListener('change', onChange)
+    return () => mq.removeEventListener('change', onChange)
+  }, [])
   const [audioCacheProgress, setAudioCacheProgress] = useState(null) // null=idle, {done,total}=downloading
   // (syncAvailable removed — sync badge is no longer shown)
   const [timings, setTimings] = useState(null)
@@ -1101,7 +1111,12 @@ export default function App() {
       audio.pause()
     }
   }
-  const selectChapter = useCallback((idx) => setCurrentIndex(idx), [])
+  const selectChapter = useCallback((idx) => {
+    setCurrentIndex(idx)
+    // UX-01: on mobile, selecting a chapter should close the drawer so the user
+    // can see the reader immediately instead of manually dismissing the panel.
+    if (isMobile()) setSidebarOpen(false)
+  }, [])
   // CQ-15: memoize next/prev with useCallback so they don't re-allocate every
   // render. The Media Session effect (and any other consumer) gets stable
   // references.
@@ -1279,7 +1294,12 @@ export default function App() {
             </nav>
           )}
         </aside>
-
+        {/* UX-01: mobile backdrop. Tapping outside the sidebar closes the drawer. */}
+        <div
+          className="sidebar-backdrop"
+          onClick={() => setSidebarOpen(false)}
+          aria-hidden="true"
+        />
         <main className="reader" id="main-reader">
           {/* CQ-1: catch throws from openFoliateView / buildTextMap /
               highlightWord so a single malformed chapter doesn't white-
