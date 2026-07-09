@@ -49,9 +49,9 @@ export default function SettingsPanel({ theme, setTheme, prefs, setPrefs, audioC
       <div className="settings-group">
         <label className="settings-label">Size</label>
         <div className="size-row">
-          <button className="size-btn" onClick={() => setPrefs(p => ({ ...p, size: Math.max(16, p.size - 1) }))} aria-label="Decrease text size">−</button>
+          <button className="size-btn" onClick={() => setPrefs(p => ({ ...p, size: Math.max(12, p.size - 1) }))} aria-label="Decrease text size">−</button>
           <div className="size-value">{prefs.size} px</div>
-          <button className="size-btn" onClick={() => setPrefs(p => ({ ...p, size: Math.min(32, p.size + 1) }))} aria-label="Increase text size">+</button>
+          <button className="size-btn" onClick={() => setPrefs(p => ({ ...p, size: Math.min(40, p.size + 1) }))} aria-label="Increase text size">+</button>
         </div>
       </div>
 

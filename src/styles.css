@@ -109,6 +109,15 @@ body {
   color: var(--accent);
   text-shadow: 0 0 8px var(--glow);
   font-family: "Iowan Old Style", "Palatino Linotype", Palatino, Georgia, serif;
+  white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+  flex-shrink: 1; min-width: 0;
+}
+.mobile-chapter-title {
+  display: none;
+  font-size: 0.85rem; color: var(--bar-fg-dim);
+  white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+  flex-shrink: 1; min-width: 0;
+  font-family: "Iowan Old Style", "Palatino Linotype", Palatino, Georgia, serif;
 }
 .spacer { flex: 1; }
 
@@ -203,6 +212,8 @@ body {
 }
 .player-time { font-size: 0.74rem; color: var(--bar-fg-dim); font-variant-numeric: tabular-nums; }
 .player-controls { display: flex; align-items: center; gap: 4px; }
+/* UX-03: wrapper keeps the chapter + controls together on mobile while letting the desktop layout treat them as direct flex items. */
+.player-top { display: contents; }
 .play-btn {
   width: 44px; height: 44px; border: none;
   background: var(--btn-bg); color: var(--btn-fg); font-size: 1.1rem;
@@ -229,8 +240,30 @@ body {
 .seek::-moz-range-thumb {
   width: 14px; height: 14px; background: var(--btn-bg); border: none;
 }
+/* UX-03: desktop keeps the slider inline; mobile hides it in favor of the accordion. */
+.seek-desktop { flex: 1; min-width: 0; display: flex; align-items: center; }
+.seek-toggle { display: none; }
 
-/* ===== Inline settings panel (sits in the sidebar, replaces chapter list) ===== */
+/* UX-03: mobile accordion seek panel. Sits above the player and expands to full width. */
+.seek-accordion {
+  display: none;
+  background: var(--bar-bg);
+  border-top: 1px solid var(--border);
+  padding: 10px 16px;
+  padding-left: calc(16px + env(safe-area-inset-left));
+  padding-right: calc(16px + env(safe-area-inset-right));
+}
+.seek-accordion.open { display: block; }
+.seek-accordion-inner { display: flex; flex-direction: column; gap: 8px; }
+.seek-accordion-header {
+  display: flex; align-items: center; justify-content: space-between;
+  color: var(--bar-fg-dim); font-size: 0.74rem;
+  font-variant-numeric: tabular-nums;
+}
+.seek-accordion-header .icon-btn {
+  color: var(--bar-fg); min-width: 36px; min-height: 36px;
+}
+.seek-accordion .seek { width: 100%; }
 .settings-panel { padding: 4px 14px 20px; color: var(--text); }
 .settings-group { margin-bottom: 14px; }
 .settings-group:last-child { margin-bottom: 0; }
@@ -314,8 +347,21 @@ body {
     background: rgba(0, 0, 0, 0.35);
     z-index: 9;
   }
-  .player { gap: 10px; }
-  .player-chapter { width: 130px; }
+  /* UX-03: stack the player on mobile so the chapter/controls sit above the seek accordion toggle. */
+  .player { flex-direction: column; gap: 4px; padding-top: 6px; padding-bottom: calc(6px + env(safe-area-inset-bottom)); min-height: auto; }
+  .player-top { display: flex; width: 100%; align-items: center; gap: 10px; }
+  .player-chapter { flex: 1; width: auto; min-width: 0; }
+  .player-chapter-title { flex: 1; }
+  .player-time { display: none; }
+  .seek-desktop { display: none; }
+  .seek-toggle {
+    display: flex; width: 100%; align-items: center; justify-content: center; gap: 6px;
+    padding: 6px 0; color: var(--bar-fg-dim); font-size: 0.74rem;
+    border-top: 1px solid var(--border); margin-top: 2px;
+    font-variant-numeric: tabular-nums; cursor: pointer;
+  }
+  .seek-toggle:active { color: var(--bar-fg); }
+  .mobile-chapter-title { display: block; }
   .chapter-item { padding: 12px 16px; }
   .seek::-webkit-slider-thumb { width: 18px; height: 18px; }
   .seek::-moz-range-thumb { width: 18px; height: 18px; }
