@@ -1104,13 +1104,22 @@ export default function App() {
     })
     win.CSS.highlights.set('sentence-hl', new win.Highlight(range))
 
-    // Scroll the sentence into view (throttled).
+    // Scroll the sentence into view (throttled). Use a real Range so we can
+    // center the highlighted sentence itself, not just its parent block.
     const now = performance.now()
     if (now - lastScrollRef.current > 600) {
       lastScrollRef.current = now
       const reduced = window.matchMedia?.('(prefers-reduced-motion: reduce)').matches
       try {
-        firstSpan.node.parentElement?.scrollIntoView({ block: 'center', behavior: reduced ? 'auto' : 'smooth' })
+        const doc = firstSpan.node.ownerDocument
+        const win = doc.defaultView
+        if (!win) return
+        const range = doc.createRange()
+        range.setStart(firstSpan.node, firstSpan.offset)
+        range.setEnd(lastSpan.node, lastSpan.offset + lastSpan.length)
+        const rect = range.getBoundingClientRect()
+        const targetTop = win.pageYOffset + rect.top - (win.innerHeight / 2) + (rect.height / 2)
+        win.scrollTo({ top: targetTop, behavior: reduced ? 'auto' : 'smooth' })
       } catch {}
     }
   }
@@ -1296,6 +1305,7 @@ export default function App() {
           </svg>
         </button>
         <h1 className="book-title">{manifest.title}</h1>
+        {chapter?.title && <span className="mobile-chapter-title">{chapter.title}</span>}
         <span className="spacer" />
       </header>
 

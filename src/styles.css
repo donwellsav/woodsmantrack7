@@ -109,6 +109,15 @@ body {
   color: var(--accent);
   text-shadow: 0 0 8px var(--glow);
   font-family: "Iowan Old Style", "Palatino Linotype", Palatino, Georgia, serif;
+  white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+  flex-shrink: 1; min-width: 0;
+}
+.mobile-chapter-title {
+  display: none;
+  font-size: 0.85rem; color: var(--bar-fg-dim);
+  white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+  flex-shrink: 1; min-width: 0;
+  font-family: "Iowan Old Style", "Palatino Linotype", Palatino, Georgia, serif;
 }
 .spacer { flex: 1; }
 
@@ -352,6 +361,7 @@ body {
     font-variant-numeric: tabular-nums; cursor: pointer;
   }
   .seek-toggle:active { color: var(--bar-fg); }
+  .mobile-chapter-title { display: block; }
   .chapter-item { padding: 12px 16px; }
   .seek::-webkit-slider-thumb { width: 18px; height: 18px; }
   .seek::-moz-range-thumb { width: 18px; height: 18px; }
