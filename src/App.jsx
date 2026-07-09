@@ -168,6 +168,22 @@ function buildTextMap(doc) {
   return { fullText: full, posMap }
 }
 
+const IconMenu = () => (
+  <svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" aria-hidden="true"><line x1="4" y1="6" x2="20" y2="6" /><line x1="4" y1="12" x2="20" y2="12" /><line x1="4" y1="18" x2="20" y2="18" /></svg>
+)
+const IconPrev = () => (
+  <svg viewBox="0 0 24 24" width="20" height="20" fill="currentColor" aria-hidden="true"><path d="M17 6l-8 6 8 6V6zM5 6v12" /></svg>
+)
+const IconPlay = () => (
+  <svg viewBox="0 0 24 24" width="22" height="22" fill="currentColor" aria-hidden="true"><path d="M7 5l14 7-14 7V5z" /></svg>
+)
+const IconPause = () => (
+  <svg viewBox="0 0 24 24" width="22" height="22" fill="currentColor" aria-hidden="true"><rect x="6" y="5" width="5" height="14" rx="1" /><rect x="13" y="5" width="5" height="14" rx="1" /></svg>
+)
+const IconNext = () => (
+  <svg viewBox="0 0 24 24" width="20" height="20" fill="currentColor" aria-hidden="true"><path d="M7 6l8 6-8 6V6zM17 6v12" /></svg>
+)
+
 export default function App() {
   const [manifest, setManifest] = useState(null)
   const [currentIndex, setCurrentIndex] = useState(0)
@@ -1312,16 +1328,16 @@ export default function App() {
 
       <footer className="player">
         <div className="player-chapter">
-          <button className="icon-btn" onClick={() => { setShowSettings(false); setSidebarOpen(o => !o) }} aria-label={sidebarOpen && !showSettings ? 'Hide chapters' : 'Show chapters'} aria-pressed={sidebarOpen && !showSettings}>☰</button>
+          <button className="icon-btn" onClick={() => { setShowSettings(false); setSidebarOpen(o => !o) }} aria-label={sidebarOpen && !showSettings ? 'Hide chapters' : 'Show chapters'} aria-pressed={sidebarOpen && !showSettings}><IconMenu /></button>
           <div className="player-chapter-title">{chapter?.title}</div>
           <div className="player-time">{fmt(currentTime)} / {fmt(duration)}</div>
         </div>
         <div className="player-controls">
-          <button className="icon-btn" onClick={prev} aria-label="Previous chapter">⏮</button>
+          <button className="icon-btn" onClick={prev} aria-label="Previous chapter"><IconPrev /></button>
           <button className="play-btn" onClick={togglePlay} aria-label={isPlaying ? 'Pause' : 'Play'} aria-pressed={isPlaying}>
-            {isPlaying ? '⏸' : '▶'}
+            {isPlaying ? <IconPause /> : <IconPlay />}
           </button>
-          <button className="icon-btn" onClick={next} aria-label="Next chapter">⏭</button>
+          <button className="icon-btn" onClick={next} aria-label="Next chapter"><IconNext /></button>
         </div>
         <input
           className="seek"
