@@ -1120,12 +1120,15 @@ export default function App() {
   // ---- Media Session API (lock screen metadata + controls) ----
   useEffect(() => {
     if (!chapter || !('mediaSession' in navigator)) return
+    // A11Y-15: use absolute URLs for artwork so mobile OS lock screens can
+    // fetch the cover regardless of how the page was loaded (PWA, iframe, etc.).
+    const artworkUrl = `${window.location.origin}/cover.jpeg`
     navigator.mediaSession.metadata = new MediaMetadata({
       title: chapter.title,
       artist: manifest?.title || 'Audiobook',
       album: 'Woodsman: Track Seven',
       artwork: [
-        { src: '/cover.jpeg', sizes: '992x1586', type: 'image/jpeg' },
+        { src: artworkUrl, sizes: '992x1586', type: 'image/jpeg' },
       ],
     })
     navigator.mediaSession.setActionHandler('play', () => togglePlay())
