@@ -133,6 +133,7 @@ body {
 }
 .sidebar::-webkit-scrollbar-thumb:hover { background: var(--accent); }
 .sidebar.closed { margin-left: -280px; }
+.sidebar-backdrop { display: none; }
 .sidebar-header {
   padding: 14px 16px 8px; font-size: 0.72rem; font-weight: 700;
   text-transform: uppercase; letter-spacing: 0.8px; color: var(--text-dim);
@@ -289,6 +290,13 @@ body {
 
 @media (max-width: 720px) {
   .sidebar { position: absolute; z-index: 10; height: calc(100% - 52px); box-shadow: var(--shadow); }
+  .sidebar:not(.closed) + .sidebar-backdrop {
+    display: block;
+    position: absolute;
+    inset: 52px 0 0 0;
+    background: rgba(0, 0, 0, 0.35);
+    z-index: 9;
+  }
   .player-chapter { width: 130px; }
 }
 /* PERF-7: PWA update prompt toast. Surfaced when vite-plugin-pwa detects a
