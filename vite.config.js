@@ -90,7 +90,7 @@ export default defineConfig({
       // to acknowledge a "new version available" toast before activating —
       // they can pick a natural break (chapter end) to reload.
       registerType: 'prompt',
-      includeAssets: ['book.epub', 'chapters.json'],
+      includeAssets: ['book.epub', 'chapters.json', 'cover.jpeg'],
       manifest: {
         name: 'Woodsman: Track Seven',
         short_name: 'Track Seven',

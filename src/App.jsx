@@ -1107,6 +1107,15 @@ export default function App() {
   // references.
   const next = useCallback(() => setCurrentIndex(i => Math.min(i + 1, (manifest?.chapters.length || 1) - 1)), [manifest])
   const prev = useCallback(() => setCurrentIndex(i => Math.max(i - 1, 0)), [])
+  // A11Y-15: seek by a fixed offset from the lock-screen/notification controls.
+  const seekBy = useCallback((delta) => {
+    const audio = audioRef.current
+    if (!audio) return
+    const duration = audio.duration || chapter?.duration || 0
+    const t = Math.min(Math.max(audio.currentTime + delta, 0), duration)
+    audio.currentTime = t
+    setCurrentTime(t)
+  }, [chapter])
 
   // ---- Media Session API (lock screen metadata + controls) ----
   useEffect(() => {
@@ -1115,11 +1124,16 @@ export default function App() {
       title: chapter.title,
       artist: manifest?.title || 'Audiobook',
       album: 'Woodsman: Track Seven',
+      artwork: [
+        { src: '/cover.jpeg', sizes: '992x1586', type: 'image/jpeg' },
+      ],
     })
     navigator.mediaSession.setActionHandler('play', () => togglePlay())
     navigator.mediaSession.setActionHandler('pause', () => togglePlay())
     navigator.mediaSession.setActionHandler('previoustrack', prev)
     navigator.mediaSession.setActionHandler('nexttrack', next)
+    navigator.mediaSession.setActionHandler('seekbackward', () => seekBy(-15))
+    navigator.mediaSession.setActionHandler('seekforward', () => seekBy(15))
     // A11Y-15: lock-screen scrub bar + chapter-position context. Update once
     // per chapter change; the throttled onTimeUpdate handles finer-grained
     // position updates below.
