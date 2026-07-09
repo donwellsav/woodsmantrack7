@@ -1430,25 +1430,26 @@ export default function App() {
           onClick={() => setSidebarOpen(false)}
           aria-hidden="true"
         />
-        <main className="reader" id="main-reader" data-reader-status={readerState.status}>
-          {/* React boundaries catch synchronous render/lifecycle errors. Async
-              reader failures are stored by App and shown below. Both retry
-              through readerKey so Foliate always receives a fresh element. */}
+        <main className="reader" id="main-reader">
+          {/* The boundary replaces this whole fragment on synchronous errors.
+              App renders async failures here too; both use the same retry. */}
           <ErrorBoundary key={readerKey} onRetry={retryReader}>
-            <foliate-view ref={viewCallbackRef} class="foliate-view" />
+            <>
+              <foliate-view ref={viewCallbackRef} class="foliate-view" />
+              {readerState.status === 'loading' && (
+                <div className="reader-state" role="status" aria-live="polite">
+                  Loading reader…
+                </div>
+              )}
+              {readerState.status === 'error' && (
+                <div className="reader-state" role="alert">
+                  <div className="reader-state-message">Couldn't load the reader.</div>
+                  <div className="reader-state-detail">{readerState.error}</div>
+                  <button className="reader-state-retry" onClick={retryReader}>Retry</button>
+                </div>
+              )}
+            </>
           </ErrorBoundary>
-          {readerState.status === 'loading' && (
-            <div className="reader-state" role="status" aria-live="polite">
-              Loading reader…
-            </div>
-          )}
-          {readerState.status === 'error' && (
-            <div className="reader-state" role="alert">
-              <div className="reader-state-message">Couldn't load the reader.</div>
-              <div className="reader-state-detail">{readerState.error}</div>
-              <button className="reader-state-retry" onClick={retryReader}>Retry</button>
-            </div>
-          )}
         </main>
       </div>
 

@@ -407,8 +407,8 @@ body {
 @media (max-width: 720px) {
   .sw-update-toast { left: 16px; right: 16px; max-width: none; }
 }
-/* CQ-1: ErrorBoundary fallback. Shown when openFoliateView / buildTextMap /
-   highlightWord throws. Centered in the reader pane with a retry button. */
+/* CQ-1: ErrorBoundary fallback for synchronous React render/lifecycle errors.
+   Centered in the reader pane with a retry button. */
 .error-boundary {
   display: flex; flex-direction: column; align-items: center; justify-content: center;
   gap: 12px; padding: 32px 24px; height: 100%;
