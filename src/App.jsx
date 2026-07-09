@@ -16,6 +16,28 @@ const AUDIO_BASE = (typeof window !== 'undefined' && window.location.hostname ==
 const PROGRESS_KEY = 'woodsman-progress-v1'
 const THEME_KEY = 'woodsman-theme-v1'
 const SAVE_INTERVAL_MS = 3000 // throttle audio-position saves
+const FOLIATE_UPGRADE_TIMEOUT_MS = 5000
+
+async function fetchEpubBlob() {
+  const response = await fetch(EPUB_URL)
+  if (!response.ok) throw new Error(`EPUB HTTP ${response.status}`)
+  return response.blob()
+}
+
+async function waitForFoliateView() {
+  if (customElements.get('foliate-view')) return
+  let timeout
+  try {
+    await Promise.race([
+      customElements.whenDefined('foliate-view'),
+      new Promise((_, reject) => {
+        timeout = setTimeout(() => reject(new Error('foliate-view upgrade timed out')), FOLIATE_UPGRADE_TIMEOUT_MS)
+      }),
+    ])
+  } finally {
+    clearTimeout(timeout)
+  }
+}
 
 // Readable book typography + colors for each theme, injected into the EPUB iframe.
 const READER_FONT = '"Iowan Old Style", "Palatino Linotype", Palatino, "Hoefler Text", Constantia, Georgia, serif'
@@ -201,6 +223,8 @@ export default function App() {
   const [currentTime, setCurrentTime] = useState(0)
   const [duration, setDuration] = useState(0)
   const [loading, setLoading] = useState(true)
+  const [readerState, setReaderState] = useState({ status: 'loading', error: null })
+  const [readerKey, setReaderKey] = useState(0)
   // PERF-7: SW update prompt state. The new SW waits to activate until the
   // user accepts this toast — preserves in-memory refs (timingsCache,
   // textMapRef, sectionIndexMapRef) across deploys during a long listening session.
@@ -242,7 +266,7 @@ export default function App() {
   const timingsCache = useRef({})
   const timingsRef = useRef(null)         // mirror of timings state for event handlers
   const sectionIndexMapRef = useRef({})   // chapter id -> section index for renderer.goTo
-  const loadHandlerRef = useRef(null)     // CQ-7: named foliate 'load' handler so we can removeEventListener
+  const readerHandlersRef = useRef(new WeakMap()) // view -> named listeners removed during remount cleanup
   const applySeekRef = useRef(null)       // CQ-3: pending applySeek listener so chapter change can remove it
   const textMapRetriesRef = useRef(0)     // CQ-4: section-text-map retry counter, reset on chapter change
   const textMapRef = useRef(null)         // { fullText, posMap } for current section
@@ -256,7 +280,6 @@ export default function App() {
   const pageEndRef = useRef(Infinity)      // paginated: end time of last visible word on current page
   const pageTurningRef = useRef(false)     // paginated: true while a page-turn is in flight (prevents re-entry)
   const pageTurnAtRef = useRef(0)          // paginated: timestamp of last page-turn (for stuck-latch timeout)
-  const relocateHandlerRef = useRef(null)  // paginated: relocate event handler for cleanup
   const rafIdxRef = useRef(-1)            // PERF-5: pending rAF word index (-1 = no scheduled frame)
   const rafHandleRef = useRef(0)          // PERF-5: handle of the in-flight rAF so we can cancel on unmount
   const chapterGenRef = useRef(0)         // CQ-8: increments on chapter change; mapWordsToDOM / highlightWord bail if the gen they were called with is stale
@@ -265,6 +288,7 @@ export default function App() {
   const cssRafRef = useRef(0)             // CQ-10: rAF handle for enforceSingleColumn so rapid applyReaderCss calls don't pile up frames
   const isScrubbingRef = useRef(false)    // PERF-9: true while the user is dragging the seek slider
   const epubPromiseRef = useRef(null)     // PERF-10: preloaded EPUB Blob promise (parallel with manifest fetch)
+  const readerAttemptRef = useRef(0)      // ignores completion from reader instances replaced by Retry
 
   useEffect(() => {
     timingsRef.current = timings
@@ -376,7 +400,10 @@ export default function App() {
     // previous code only fetched /book.epub inside openFoliateView (after
     // React commits + foliate finishes loading), serializing ~260KB behind
     // the chapter list paint. Preloading here lets both round-trips overlap.
-    epubPromiseRef.current = fetch(EPUB_URL).then(r => r.blob()).catch(() => null)
+    epubPromiseRef.current = fetchEpubBlob()
+    // The reader consumes this same promise after the manifest loads. Attach a
+    // handler now so an early HTTP failure is not reported as unhandled.
+    epubPromiseRef.current.catch(() => {})
     // CQ-11: handle network / parse failures so the app doesn't hang on
     // "Loading..." forever. Surface the error in the UI so the user can
     // tell the difference between "still loading" and "the manifest is gone".
@@ -691,26 +718,48 @@ export default function App() {
     }
   }
 
+  function isCurrentReaderAttempt(view, attempt) {
+    return readerAttemptRef.current === attempt && viewRef.current === view
+  }
+
+  function cleanupFoliateView(view) {
+    if (!view) return
+    const handlers = readerHandlersRef.current.get(view)
+    if (handlers?.load) {
+      try { view.removeEventListener('load', handlers.load) } catch {}
+    }
+    if (handlers?.relocate) {
+      try { view.removeEventListener('relocate', handlers.relocate) } catch {}
+    }
+    readerHandlersRef.current.delete(view)
+    try { view.close?.() } catch {}
+  }
+
   // ---- open foliate-view (callback ref so it runs after the element is attached) ----
-  async function openFoliateView(view) {
+  async function openFoliateView(view, attempt) {
     try {
+      await waitForFoliateView()
+      if (!isCurrentReaderAttempt(view, attempt)) return
       // CQ-23: clear any stale section-index map from a previous open attempt
       // so a re-init (StrictMode double-invoke, ErrorBoundary retry) doesn't
       // carry forward mappings from a different EPUB instance.
       sectionIndexMapRef.current = {}
       // PERF-10: consume the preloaded EPUB blob (kicked off alongside the
-      // manifest fetch). Falls back to a fresh fetch if the preload failed.
-      let blob = epubPromiseRef.current ? await epubPromiseRef.current : null
-      if (!blob) {
-        const res = await fetch(EPUB_URL)
-        blob = await res.blob()
-      }
+      // manifest fetch). Retry intentionally clears it and fetches a new copy.
+      const blob = epubPromiseRef.current
+        ? await epubPromiseRef.current
+        : await fetchEpubBlob()
+      if (!isCurrentReaderAttempt(view, attempt)) return
       const file = new File([blob], 'book.epub', { type: blob.type || 'application/epub+zip' })
       await view.open(file)
+      if (!isCurrentReaderAttempt(view, attempt)) {
+        cleanupFoliateView(view)
+        return
+      }
       // continuous scroll: one smooth native-scroll document per chapter
       // — no transition to jank, and getContents()
       // returns the whole chapter so the text map builds once per chapter.
-      try { view.renderer.setAttribute('flow', prefs.flow) } catch {}
+      try { view.renderer.setAttribute('flow', prefsRef.current.flow) } catch {}
       // theme the reader's scroll container (it lives in the paginator's shadow
       // root, so inject a stylesheet there to style its scrollbar per theme).
       try {
@@ -732,7 +781,11 @@ export default function App() {
         }
       } catch {}
       // foliate renders nothing until you navigate — trigger the first section
-      await view.renderer.firstSection().catch(() => {})
+      await view.renderer.firstSection()
+      if (!isCurrentReaderAttempt(view, attempt)) {
+        cleanupFoliateView(view)
+        return
+      }
       // theme the EPUB content (foliate stores + reapplies these on every chapter)
       try { view.renderer.setStyles(readerCss(themeRef.current, prefsRef.current)) } catch {}
       // SMOKE-1: build chapter-id -> section-index map. The previous approach
@@ -747,23 +800,10 @@ export default function App() {
           if (m) sectionIndexMapRef.current[`ch${m[1]}`] = i
         })
       }
-      foliateReady.current = true
-      // CQ-5: bump the state flag so the chapter-nav effect re-runs and any
-      // chapter the user clicked during foliate's open resolves against the
-      // LATEST chapter.id (not whatever was captured in pendingNav when they
-      // first clicked).
-      setFoliateReadyFlag(true)
       // Rebuild the text map only when a section (chapter) loads — NOT on every
       // relocate/page-change, which would block the animation frame and stutter.
-      // CQ-7: store the handler in a ref so a re-init (StrictMode double-invoke,
-      // ErrorBoundary retry) can remove the previous one before adding a new one.
-      // Without this, two load handlers would fire per section change and race
-      // on textMapRef.
-      if (loadHandlerRef.current) {
-        try { view.removeEventListener('load', loadHandlerRef.current) } catch {}
-      }
-      loadHandlerRef.current = () => { buildSectionTextMap(); enforceSingleColumn() }
-      view.addEventListener('load', loadHandlerRef.current)
+      const onLoad = () => { buildSectionTextMap(); enforceSingleColumn() }
+      view.addEventListener('load', onLoad)
       // Paginated mode: listen for 'relocate' to detect page changes.
       // The relocate event fires after every page scroll/turn. We use it
       // to clear the page-turn latch and update pageEndRef.
@@ -778,31 +818,43 @@ export default function App() {
         updatePageEnd()
       }
       view.addEventListener('relocate', onRelocate)
-      relocateHandlerRef.current = onRelocate
+      readerHandlersRef.current.set(view, { load: onLoad, relocate: onRelocate })
       buildSectionTextMap()
       if (pendingNav.current) {
         const idx = sectionIndexMapRef.current[pendingNav.current]
         if (typeof idx === 'number') view.renderer.goTo({ index: idx }).catch(() => {})
         pendingNav.current = null
       }
+      if (!isCurrentReaderAttempt(view, attempt)) {
+        cleanupFoliateView(view)
+        return
+      }
+      foliateReady.current = true
+      // CQ-5: bump the state flag so the chapter-nav effect re-runs and any
+      // chapter the user clicked during foliate's open resolves against the
+      // LATEST chapter.id (not whatever was captured in pendingNav when they
+      // first clicked).
+      setFoliateReadyFlag(true)
+      setReaderState({ status: 'ready', error: null })
     } catch (e) {
+      if (!isCurrentReaderAttempt(view, attempt)) {
+        cleanupFoliateView(view)
+        return
+      }
       console.error('foliate open failed', e)
+      cleanupFoliateView(view)
+      setReaderState({ status: 'error', error: e?.message || String(e) })
     }
   }
 
-  // CQ-7: unmount cleanup. Remove the foliate 'load' listener + cancel any
-  // pending rAF so a StrictMode remount or ErrorBoundary retry doesn't leave
-  // stale handlers firing against a detached view.
+  // CQ-7: unmount cleanup. Invalidate the attempt, remove listeners, close the
+  // renderer, and cancel scheduled work so a detached view cannot update App.
   useEffect(() => {
     return () => {
       const view = viewRef.current
-      if (view && loadHandlerRef.current) {
-        try { view.removeEventListener('load', loadHandlerRef.current) } catch {}
-      }
-      const view2 = viewRef.current
-      if (view2 && relocateHandlerRef.current) {
-        try { view2.removeEventListener('relocate', relocateHandlerRef.current) } catch {}
-      }
+      readerAttemptRef.current += 1
+      viewRef.current = null
+      cleanupFoliateView(view)
       if (rafHandleRef.current) cancelAnimationFrame(rafHandleRef.current)
       if (cssRafRef.current) cancelAnimationFrame(cssRafRef.current)
       if (cssDebounceRef.current) clearTimeout(cssDebounceRef.current)
@@ -810,12 +862,34 @@ export default function App() {
   }, [])
 
   const viewCallbackRef = useCallback((el) => {
-    viewRef.current = el
-    if (el && !el.__openStarted) {
-      el.__openStarted = true
-      openFoliateView(el)
+    if (!el) {
+      const view = viewRef.current
+      if (view) {
+        readerAttemptRef.current += 1
+        viewRef.current = null
+        cleanupFoliateView(view)
+      }
+      return
     }
+    const previousView = viewRef.current
+    if (previousView && previousView !== el) cleanupFoliateView(previousView)
+    viewRef.current = el
+    const attempt = ++readerAttemptRef.current
+    setReaderState({ status: 'loading', error: null })
+    openFoliateView(el, attempt)
   }, [])
+
+  function retryReader() {
+    readerAttemptRef.current += 1
+    const view = viewRef.current
+    viewRef.current = null
+    cleanupFoliateView(view)
+    epubPromiseRef.current = null
+    foliateReady.current = false
+    setFoliateReadyFlag(false)
+    setReaderState({ status: 'loading', error: null })
+    setReaderKey(key => key + 1)
+  }
 
   // ---- navigate reader when chapter changes ----
   // CQ-5: depend on foliateReadyFlag (state) so the effect re-runs once foliate
@@ -1356,13 +1430,25 @@ export default function App() {
           onClick={() => setSidebarOpen(false)}
           aria-hidden="true"
         />
-        <main className="reader" id="main-reader">
-          {/* CQ-1: catch throws from openFoliateView / buildTextMap /
-              highlightWord so a single malformed chapter doesn't white-
-              screen the whole app. */}
-          <ErrorBoundary>
+        <main className="reader" id="main-reader" data-reader-status={readerState.status}>
+          {/* React boundaries catch synchronous render/lifecycle errors. Async
+              reader failures are stored by App and shown below. Both retry
+              through readerKey so Foliate always receives a fresh element. */}
+          <ErrorBoundary key={readerKey} onRetry={retryReader}>
             <foliate-view ref={viewCallbackRef} class="foliate-view" />
           </ErrorBoundary>
+          {readerState.status === 'loading' && (
+            <div className="reader-state" role="status" aria-live="polite">
+              Loading reader…
+            </div>
+          )}
+          {readerState.status === 'error' && (
+            <div className="reader-state" role="alert">
+              <div className="reader-state-message">Couldn't load the reader.</div>
+              <div className="reader-state-detail">{readerState.error}</div>
+              <button className="reader-state-retry" onClick={retryReader}>Retry</button>
+            </div>
+          )}
         </main>
       </div>
 
@@ -1447,4 +1533,3 @@ export default function App() {
       </div>
   )
 }
-

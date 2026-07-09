@@ -193,6 +193,23 @@ body {
   transition: background 0.25s ease;
 }
 .foliate-view { width: 100%; height: 100%; display: block; }
+.reader-state {
+  position: absolute; inset: 0; z-index: 1;
+  display: flex; flex-direction: column; align-items: center; justify-content: center;
+  gap: 12px; padding: 32px 24px;
+  background: var(--reader-bg); color: var(--text); text-align: center;
+}
+.reader-state-message { font-size: 1rem; font-weight: 600; }
+.reader-state-detail {
+  max-width: 38em; color: var(--text-dim); font-size: 0.85rem;
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  word-break: break-word;
+}
+.reader-state-retry {
+  border: none; padding: 8px 16px; cursor: pointer;
+  background: var(--accent); color: var(--bar-bg); font-size: 0.9rem; font-weight: 600;
+}
+.reader-state-retry:hover { filter: brightness(1.1); }
 
 .player {
   display: flex; align-items: center; gap: 16px;
