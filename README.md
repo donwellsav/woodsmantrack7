@@ -120,9 +120,6 @@ dependency or a larger refactor:
 - **PERF-11**: `buildSectionTextMap` runs synchronously on the main thread
   and blocks the UI for hundreds of ms on long chapters. Move to a Web
   Worker for true non-blocking parsing.
-- **PERF-1**: `CacheFirst` with `maxEntries: 100` evicts audio by recency
-  rather than listening position. Pinning the current/adjacent chapters
-  needs a custom Workbox plugin.
 - **PERF-19**: First-session bandwidth is ~31MB before first highlight
   (precache + EPUB + timings + audio chunk). Consider lazy-loading the
   EPUB only after the user picks a chapter.

@@ -89,7 +89,9 @@ test.describe('preferences', () => {
     await expect.poll(() => readerIsReady(page)).toBe(true)
     await openSettings(page)
 
-    await page.getByRole('button', { name: 'Manual' }).click()
+    const manual = page.getByRole('button', { name: 'Manual' })
+    await manual.click()
+    await expect(manual).toHaveAttribute('aria-pressed', 'true')
 
     await expect.poll(() => page.evaluate(() =>
       JSON.parse(localStorage.getItem('woodsman-prefs-v1')).flow)).toBe('manual')
@@ -99,7 +101,7 @@ test.describe('preferences', () => {
     await expect.poll(() => readerIsReady(page)).toBe(true)
     await expect.poll(() => rendererFlow(page)).toBe('scrolled')
     await openSettings(page)
-    await expect(page.getByRole('button', { name: 'Manual' })).toHaveAttribute('aria-pressed', 'true')
+    await expect(manual).toHaveAttribute('aria-pressed', 'true')
     expect(await page.evaluate(() =>
       JSON.parse(localStorage.getItem('woodsman-prefs-v1')).flow)).toBe('manual')
   })
