@@ -527,46 +527,9 @@ export default function App() {
     wordSpansRef.current = spans
   }
 
-  // ---- build a flat text map for the current foliate-view section ----
-  function buildSectionTextMap() {
-    const view = viewRef.current
-    if (!view || !view.renderer) return
-    let docs
-    try { docs = view.renderer.getContents() } catch { return }
-    if (!docs || !docs.length) return
-    // sum text across all content docs (paginator may split a section into pages)
-    let combined = ''
-    let combinedMap = []
-    for (const d of docs) {
-      const doc = d.doc
-      if (!doc || !doc.body) continue
-      const tm = buildTextMap(doc)
-      combined += tm.fullText + '\n'
-      combinedMap.push(...tm.posMap)
-    }
-    // foliate may fire 'load' before the section's body is fully populated;
-    // if the captured text is too short, retry shortly (but cap retries so
-    // genuinely short chapters — e.g. title-only — don't loop forever).
-    // CQ-4: counter lives in a ref (reset on chapter change) instead of a
-    // function-property, so stale retries from chapter A can't fire after
-    // the user has navigated to chapter B and overwrite textMapRef with
-    // the wrong chapter's text.
-    if (combined.length < 200) {
-      const n = textMapRetriesRef.current + 1
-      textMapRetriesRef.current = n
-      if (n <= 10) setTimeout(buildSectionTextMap, 200)
-      // Still clear the page-turn latch even on retry so we don't get
-      // stuck if the retry chain fails.
-      pageTurningRef.current = false
-      return
-    }
-    textMapRetriesRef.current = 0
-    textMapRef.current = { fullText: combined, posMap: combinedMap }
-    enforceSingleColumn()
-    mapWordsToDOM()
-    // Paginated mode: compute the end time of the last word visible on
-  // the current page. Uses foliate's page property + total pages to
-  // figure out which portion of wordSpans belongs to this page.
+  // Paginated mode: compute the end time of the last word visible on the
+  // current page. Uses foliate's page property + total pages to figure out
+  // which portion of wordSpans belongs to this page.
   function updatePageEnd() {
     const r = viewRef.current?.renderer
     if (!r) return
@@ -643,6 +606,43 @@ export default function App() {
     }
   }
 
+  // ---- build a flat text map for the current foliate-view section ----
+  function buildSectionTextMap() {
+    const view = viewRef.current
+    if (!view || !view.renderer) return
+    let docs
+    try { docs = view.renderer.getContents() } catch { return }
+    if (!docs || !docs.length) return
+    // sum text across all content docs (paginator may split a section into pages)
+    let combined = ''
+    let combinedMap = []
+    for (const d of docs) {
+      const doc = d.doc
+      if (!doc || !doc.body) continue
+      const tm = buildTextMap(doc)
+      combined += tm.fullText + '\n'
+      combinedMap.push(...tm.posMap)
+    }
+    // foliate may fire 'load' before the section's body is fully populated;
+    // if the captured text is too short, retry shortly (but cap retries so
+    // genuinely short chapters — e.g. title-only — don't loop forever).
+    // CQ-4: counter lives in a ref (reset on chapter change) instead of a
+    // function-property, so stale retries from chapter A can't fire after
+    // the user has navigated to chapter B and overwrite textMapRef with
+    // the wrong chapter's text.
+    if (combined.length < 200) {
+      const n = textMapRetriesRef.current + 1
+      textMapRetriesRef.current = n
+      if (n <= 10) setTimeout(buildSectionTextMap, 200)
+      // Still clear the page-turn latch even on retry so we don't get
+      // stuck if the retry chain fails.
+      pageTurningRef.current = false
+      return
+    }
+    textMapRetriesRef.current = 0
+    textMapRef.current = { fullText: combined, posMap: combinedMap }
+    enforceSingleColumn()
+    mapWordsToDOM()
     // Paginated mode: after word spans are built, update pageEndRef to
     // the end time of the last word visible on the current page.
     pageTurningRef.current = false
@@ -1104,22 +1104,14 @@ export default function App() {
     })
     win.CSS.highlights.set('sentence-hl', new win.Highlight(range))
 
-    // Scroll the sentence into view (throttled). Use a real Range so we can
-    // center the highlighted sentence itself, not just its parent block.
+    // Scroll the sentence into view (throttled). Skip entirely in Manual flow
+    // so the user controls the page position themselves.
     const now = performance.now()
-    if (now - lastScrollRef.current > 600) {
+    if (now - lastScrollRef.current > 600 && prefs.flow !== 'manual') {
       lastScrollRef.current = now
       const reduced = window.matchMedia?.('(prefers-reduced-motion: reduce)').matches
       try {
-        const doc = firstSpan.node.ownerDocument
-        const win = doc.defaultView
-        if (!win) return
-        const range = doc.createRange()
-        range.setStart(firstSpan.node, firstSpan.offset)
-        range.setEnd(lastSpan.node, lastSpan.offset + lastSpan.length)
-        const rect = range.getBoundingClientRect()
-        const targetTop = win.pageYOffset + rect.top - (win.innerHeight / 2) + (rect.height / 2)
-        win.scrollTo({ top: targetTop, behavior: reduced ? 'auto' : 'smooth' })
+        firstSpan.node.parentElement?.scrollIntoView({ block: 'center', inline: 'nearest', behavior: reduced ? 'auto' : 'smooth' })
       } catch {}
     }
   }

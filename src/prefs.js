@@ -40,6 +40,7 @@ export const FONTS = {
 export const FLOW_OPTS = [
   { id: 'scrolled', label: 'Scroll', note: 'Continuous, smooth' },
   { id: 'paginated', label: 'Page', note: 'One page at a time' },
+  { id: 'manual', label: 'Manual', note: 'No auto-scroll' },
 ]
 
 // CQ-6: validate prefs from localStorage. Defaults are tuned for a comfortable
