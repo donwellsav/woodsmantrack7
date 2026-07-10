@@ -204,15 +204,30 @@ test.describe('preferences', () => {
     await page.goto('/')
     await expect.poll(() => readerIsReady(page)).toBe(true)
     await openSettings(page)
-    await page.getByRole('button', { name: /Lexend/ }).click()
+    const settings = page.getByRole('region', { name: 'Reading settings' })
+    for (const family of ['Lexend', 'Atkinson Hyperlegible', 'OpenDyslexic']) {
+      await expect.poll(() => page.evaluate(async name =>
+        (await document.fonts.load(`16px "${name}"`)).length, family)).toBeGreaterThan(0)
+    }
 
-    const families = await page.locator('.app, .book-title, .player-chapter-title, .font-name')
-      .evaluateAll(elements => elements.map(element => getComputedStyle(element).fontFamily))
-    for (const family of families) expect(family).toContain('Lexend')
-    await expect.poll(() => page.locator('foliate-view').evaluate(view => {
-      const doc = view.renderer.getContents()[0].doc
-      return doc.defaultView.getComputedStyle(doc.body).fontFamily
-    })).toContain('Lexend')
+    const selections = [
+      ['Iowan Old Style', 'Iowan Old Style'],
+      ['Lexend', 'Lexend'],
+      ['Atkinson Hyperlegible', 'Atkinson Hyperlegible'],
+      ['OpenDyslexic', 'OpenDyslexic'],
+      ['Georgia', 'Georgia'],
+      ['System serif', 'Times New Roman'],
+    ]
+    for (const [label, family] of selections) {
+      await settings.locator('.font-name').filter({ hasText: new RegExp(`^${label}$`) }).locator('..').click()
+      await expect.poll(() => page.locator('.app, .book-title, .player-chapter-title, .font-name')
+        .evaluateAll((elements, expected) => elements.every(element =>
+          getComputedStyle(element).fontFamily.includes(expected)), family)).toBe(true)
+      await expect.poll(() => page.locator('foliate-view').evaluate(view => {
+        const doc = view.renderer.getContents()[0].doc
+        return doc.defaultView.getComputedStyle(doc.body).fontFamily
+      })).toContain(family)
+    }
   })
 
   test('Page is removed and Chapters and Settings swap locations', async ({ page }) => {

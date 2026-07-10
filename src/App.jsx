@@ -61,14 +61,16 @@ const THEMES = {
 // the fonts from /fonts/* (same origin). These cover the three non-system
 // fonts exposed in settings; the others fall through to native stacks.
 // Use absolute URLs so @font-face resolves inside foliate's blob iframe.
-const FONT_ORIGIN = typeof window !== 'undefined' ? window.location.origin : ''
+const FONT_BASE = typeof window !== 'undefined'
+  ? new URL(`${import.meta.env.BASE_URL}fonts/`, window.location.origin).href
+  : ''
 const FONT_FACES = `
 @font-face { font-family: 'Lexend'; font-style: normal; font-weight: 400; font-display: swap;
-  src: url('${FONT_ORIGIN}/fonts/lexend-400.woff2') format('woff2'); }
+  src: url('${FONT_BASE}lexend-400.woff2') format('woff2'); }
 @font-face { font-family: 'Atkinson Hyperlegible'; font-style: normal; font-weight: 400; font-display: swap;
-  src: url('${FONT_ORIGIN}/fonts/atkinson-400.woff2') format('woff2'); }
+  src: url('${FONT_BASE}atkinson-400.woff2') format('woff2'); }
 @font-face { font-family: 'OpenDyslexic'; font-style: normal; font-weight: 400; font-display: swap;
-  src: url('${FONT_ORIGIN}/fonts/opendyslexic-400.woff2') format('woff2'); }
+  src: url('${FONT_BASE}opendyslexic-400.woff2') format('woff2'); }
 `
 
 function readerCss(theme, prefs) {
@@ -1238,6 +1240,7 @@ export default function App() {
 
   return (
     <div className="app" style={{ '--app-font': FONTS[prefs.font].css }}>
+      <style>{FONT_FACES}</style>
       {/* A11Y-23: visually-hidden aria-live region so screen readers announce
           chapter changes. The visible player-time div updates ~4x/sec and
           would spam AT if it were the live region. */}
