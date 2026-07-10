@@ -183,8 +183,9 @@ test.describe('preferences', () => {
     await openSettings(page)
 
     const settings = page.getByRole('region', { name: 'Reading settings' })
-    await expect(settings.getByRole('heading', { name: 'Reading', exact: true })).toBeVisible()
-    await expect(settings.getByRole('heading', { name: 'Playback' })).toBeVisible()
+    await expect(settings.getByRole('region', { name: 'Reading', exact: true })).toBeVisible()
+    await expect(settings.getByRole('region', { name: 'Playback', exact: true })).toBeVisible()
+    await expect(settings.getByRole('heading', { name: /^(Reading|Playback)$/ })).toHaveCount(0)
     const heights = await settings.locator('.option-btn').evaluateAll(buttons =>
       [...new Set(buttons.map(button => button.getBoundingClientRect().height))])
     expect(heights).toEqual([44])

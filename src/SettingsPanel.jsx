@@ -13,9 +13,7 @@ export default function SettingsPanel({ theme, setTheme, prefs, setPrefs }) {
     // give the panel a landmark AT can find.
     <div className="settings-panel" id="settings-panel" role="region" aria-labelledby="settings-heading">
       <h2 id="settings-heading" className="visually-hidden">Reading settings</h2>
-      <section className="settings-section" aria-labelledby="reading-settings-heading">
-        <h3 id="reading-settings-heading" className="settings-section-title">Reading</h3>
-
+      <section className="settings-section" aria-label="Reading">
         <div className="settings-group">
           <span className="settings-label">Theme</span>
           <div className="option-row">
@@ -85,9 +83,7 @@ export default function SettingsPanel({ theme, setTheme, prefs, setPrefs }) {
         </div>
       </section>
 
-      <section className="settings-section" aria-labelledby="playback-settings-heading">
-        <h3 id="playback-settings-heading" className="settings-section-title">Playback</h3>
-
+      <section className="settings-section" aria-label="Playback">
         <div className="settings-group">
           <span className="settings-label">Speed</span>
           <div className="option-row playback-speed" role="group" aria-label="Playback speed">
