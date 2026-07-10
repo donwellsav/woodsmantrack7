@@ -384,6 +384,9 @@ test.describe('playback controls', () => {
 
     await page.locator('audio').evaluate(audio => { audio.currentTime = 30 })
     await expect.poll(() => page.locator('audio').evaluate(audio => audio.currentTime)).toBe(30)
+    await expect.poll(() => page.locator('.seek-desktop .seek').evaluate(slider =>
+      parseFloat(getComputedStyle(slider).getPropertyValue('--seek-progress')))).toBeGreaterThan(0)
+    await expect(page.locator('.seek-desktop .seek')).toHaveCSS('background-image', /linear-gradient/)
     await back.click()
     await expect.poll(() => page.locator('audio').evaluate(audio => audio.currentTime)).toBe(15)
     await forward.click()

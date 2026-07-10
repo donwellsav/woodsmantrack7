@@ -1213,11 +1213,13 @@ export default function App() {
   const continueSeconds = progress.chapters[continueIndex]?.seconds
     ?? (progress.currentIndex === continueIndex ? progress.currentTime : 0)
   const percentage = bookPercentage(progress, manifest.chapters)
+  const seekProgress = duration > 0 ? Math.min(100, Math.max(0, currentTime / duration * 100)) : 0
 
   const seekSlider = (
     <input
       className="seek"
       type="range" min={0} max={duration || 0} value={currentTime}
+      style={{ '--seek-progress': `${seekProgress}%` }}
       aria-label="Seek audio position"
       onPointerDown={() => { isScrubbingRef.current = true }}
       onPointerUp={() => {
