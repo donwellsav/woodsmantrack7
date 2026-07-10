@@ -188,6 +188,11 @@ test.describe('preferences', () => {
     const heights = await settings.locator('.option-btn').evaluateAll(buttons =>
       [...new Set(buttons.map(button => button.getBoundingClientRect().height))])
     expect(heights).toEqual([44])
+    const fontBoxes = await settings.locator('.font-item').evaluateAll(buttons =>
+      buttons.map(button => button.getBoundingClientRect()).map(({ y, height }) => ({ y, height })))
+    expect([...new Set(fontBoxes.map(({ height }) => height))]).toEqual([44])
+    expect(fontBoxes[1].y).toBe(fontBoxes[0].y)
+    expect(fontBoxes[2].y).toBeGreaterThan(fontBoxes[0].y)
     const [size, spacing] = await Promise.all([
       settings.getByText('Size', { exact: true }).locator('..').boundingBox(),
       settings.getByText('Spacing', { exact: true }).locator('..').boundingBox(),
