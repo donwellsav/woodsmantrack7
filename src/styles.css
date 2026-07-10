@@ -72,7 +72,7 @@ button, input[type="button"], input[type="submit"] {
 button:focus-visible, a:focus-visible, input:focus-visible,
 [tabindex]:focus-visible, .chapter-item:focus-visible, .font-item:focus-visible,
 .option-btn:focus-visible, .size-btn:focus-visible, .icon-btn:focus-visible,
-.play-btn:focus-visible, .sidebar-gear:focus-visible {
+.play-btn:focus-visible, .topbar-chapters:focus-visible {
   outline: 2px solid var(--accent);
   outline-offset: 2px;
 }
@@ -96,7 +96,7 @@ body {
   height: 100vh; height: 100dvh;
 }
 
-/* topbar — no settings here; sidebar owns it */
+/* topbar chapter navigation */
 .topbar {
   display: flex; align-items: center; gap: 12px;
   padding: env(safe-area-inset-top) 16px 0 16px;
@@ -132,10 +132,10 @@ body {
 .icon-btn:hover { background: rgba(255, 255, 255, 0.12); }
 .icon-btn:active { background: var(--accent); color: var(--on-accent); }
 .icon-btn svg { display: block; }
-.sidebar-gear { color: var(--text-dim); }
-.sidebar-gear:hover { color: var(--text); background: rgba(0,0,0,0.06); }
-.sidebar-gear:active { background: var(--accent); color: var(--on-accent); }
-.sidebar-gear[aria-expanded='true'] { color: var(--accent); }
+.topbar-chapters { color: var(--text-dim); }
+.topbar-chapters:hover { color: var(--text); background: rgba(0,0,0,0.06); }
+.topbar-chapters:active { background: var(--accent); color: var(--on-accent); }
+.topbar-chapters[aria-pressed='true'] { color: var(--accent); }
 
 .main { flex: 1; display: flex; min-height: 0; position: relative; }
 

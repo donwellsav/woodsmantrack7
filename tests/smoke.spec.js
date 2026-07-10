@@ -154,6 +154,26 @@ test.describe('preferences', () => {
     await expect(settings.getByText(/offline/i)).toHaveCount(0)
     await expect(settings.getByRole('button', { name: /download.*audio/i })).toHaveCount(0)
   })
+
+  test('Page is removed and Chapters and Settings swap locations', async ({ page }) => {
+    await page.goto('/')
+
+    const topbar = page.locator('header.topbar')
+    const playerChapter = page.locator('.player-chapter')
+    await expect(topbar.getByRole('button', { name: /chapters/i })).toBeVisible()
+    await expect(topbar.getByRole('button', { name: 'Settings' })).toHaveCount(0)
+    await expect(playerChapter.getByRole('button', { name: 'Settings' })).toBeVisible()
+    await expect(playerChapter.getByRole('button', { name: /chapters/i })).toHaveCount(0)
+
+    await playerChapter.getByRole('button', { name: 'Settings' }).click()
+    const settings = page.getByRole('region', { name: 'Reading settings' })
+    await expect(settings).toBeVisible()
+    await expect(settings.getByRole('button', { name: 'Page' })).toHaveCount(0)
+
+    await topbar.getByRole('button', { name: /chapters/i }).click()
+    await expect(settings).toHaveCount(0)
+    await expect(page.getByRole('heading', { name: 'Chapters' })).toBeVisible()
+  })
 })
 
 test.describe('navigation accessibility', () => {
@@ -170,71 +190,6 @@ test.describe('navigation accessibility', () => {
     const door = drawer.locator('button.chapter-item').filter({ hasText: 'The Door' })
     await door.evaluate(button => button.focus())
     expect(await drawer.evaluate(aside => aside.contains(document.activeElement))).toBe(false)
-  })
-})
-
-test.describe('paginated reading', () => {
-  test('Page mode advances when audio crosses the current page boundary', async ({ page }) => {
-    await routeGeneratedAudio(page, 1200)
-    await page.goto('/')
-    await expect.poll(() => readerIsReady(page)).toBe(true)
-    await page.getByRole('button', { name: /^The Door/ }).click()
-    await expect.poll(() => renderedReaderText(page)).toContain(FIRST_CHAPTER_TEXT)
-    await openSettings(page)
-    await page.getByRole('button', { name: 'Manual' }).click()
-    await expect.poll(() => rendererFlow(page)).toBe('scrolled')
-
-    const { midChapterTime, lastWordEnd } = await page.evaluate(async () => {
-      const { words } = await fetch('/timings/ch002.json').then(response => response.json())
-      return {
-        midChapterTime: words[Math.floor(words.length / 2)].end,
-        lastWordEnd: words.at(-1).end,
-      }
-    })
-    expect(midChapterTime).toBeLessThan(lastWordEnd)
-    await expect.poll(() => page.locator('audio').evaluate(audio => audio.duration))
-      .toBeGreaterThan(midChapterTime)
-
-    await page.locator('foliate-view').evaluate(view => {
-      for (const { doc } of view.renderer?.getContents?.() ?? []) {
-        doc?.defaultView?.CSS?.highlights?.delete('sentence-hl')
-      }
-    })
-    await expect.poll(() => page.locator('audio').evaluate(async (audio, target) => {
-      audio.currentTime = target
-      audio.dispatchEvent(new Event('timeupdate'))
-      await new Promise(resolve => requestAnimationFrame(() => requestAnimationFrame(resolve)))
-      const view = audio.ownerDocument.querySelector('foliate-view')
-      return (view?.renderer?.getContents?.() ?? []).some(({ doc }) =>
-        doc?.defaultView?.CSS?.highlights?.has('sentence-hl'))
-    }, midChapterTime)).toBe(true)
-
-    await page.getByRole('button', { name: 'Page' }).click()
-    await expect.poll(() => rendererFlow(page)).toBe('paginated')
-
-    await expect.poll(() => page.locator('foliate-view').evaluate(view =>
-      Boolean(view.lastLocation?.range))).toBe(true)
-    expect(await page.locator('foliate-view').evaluate(view =>
-      typeof view.renderer?.next)).toBe('function')
-
-    await page.locator('foliate-view').evaluate(view => {
-      const renderer = view.renderer
-      const next = renderer.next
-      window.__pageTurnCalls = 0
-      renderer.next = async function (...args) {
-        const result = await next.apply(this, args)
-        window.__pageTurnCalls += 1
-        return result
-      }
-    })
-
-    await expect.poll(async () => {
-      return page.locator('audio').evaluate((audio, target) => {
-        audio.currentTime = target
-        audio.dispatchEvent(new Event('timeupdate'))
-        return window.__pageTurnCalls
-      }, midChapterTime)
-    }).toBeGreaterThan(0)
   })
 })
 

@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState, useCallback } from 'react'
 import ErrorBoundary from './ErrorBoundary.jsx'
 import SettingsPanel from './SettingsPanel.jsx'
-import { FONTS, loadPrefs, rendererFlow } from './prefs.js'
+import { FONTS, loadPrefs } from './prefs.js'
 import { PROGRESS_KEY, bookPercentage, parseProgress, updateProgress } from './progress.js'
 
 // In production, audio is served from Cloudflare R2 via a custom domain
@@ -76,13 +76,6 @@ function readerCss(theme, prefs) {
   const font = FONTS[prefs?.font] || FONTS.iowan
   const size = prefs?.size ?? 19
   const lh = prefs?.lineHeight ?? 1.7
-  // Paginated mode: don't constrain body max-width — foliate's columnize()
-  // needs the body unconstrained. Scrolled mode: 38em centered column.
-  const flow = prefs?.flow ?? 'scrolled'
-  const bodyWidthRule = flow === 'paginated'
-    ? 'body { padding: 1em 1.2em !important; }'
-    : `body { max-width: 38em !important; margin: 0 auto !important; padding: 1em 1.2em !important; }
-       section, section.level1, .level1, section > * { max-width: 38em !important; margin-left: auto !important; margin-right: auto !important; }`
   return FONT_FACES + `
     html, body {
       background: ${t.readerBg} !important;
@@ -92,7 +85,8 @@ function readerCss(theme, prefs) {
       line-height: ${lh} !important;
       -webkit-font-smoothing: antialiased;
     }
-    ${bodyWidthRule}
+    body { max-width: 38em !important; margin: 0 auto !important; padding: 1em 1.2em !important; }
+    section, section.level1, .level1, section > * { max-width: 38em !important; margin-left: auto !important; margin-right: auto !important; }
     p { margin: 0 0 1em !important; orphans: 2; widows: 2; }
     h1, h2, h3 { line-height: 1.3 !important; color: ${t.readerFg} !important; }
     a, a:link { color: ${t.link} !important; }
@@ -193,6 +187,12 @@ function buildTextMap(doc) {
 const IconMenu = () => (
   <svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" aria-hidden="true"><line x1="4" y1="6" x2="20" y2="6" /><line x1="4" y1="12" x2="20" y2="12" /><line x1="4" y1="18" x2="20" y2="18" /></svg>
 )
+const IconSettings = () => (
+  <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+    <circle cx="12" cy="12" r="3" />
+    <path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 1 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 1 1-4 0v-.09a1.65 1.65 0 0 0-1-1.51 1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 1 1-2.83-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 1 1 0-4h.09a1.65 1.65 0 0 0 1.51-1 1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 1 1 2.83-2.83l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 1 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 1 1 2.83 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 1 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z" />
+  </svg>
+)
 const IconPrev = () => (
   <svg viewBox="0 0 24 24" width="20" height="20" fill="currentColor" aria-hidden="true"><path d="M17 6l-8 6 8 6V6zM5 6v12" /></svg>
 )
@@ -279,10 +279,6 @@ export default function App() {
   const wordToSentenceRef = useRef([])    // wordIdx -> sentenceIdx reverse lookup
   const pendingSeekRef = useRef(null)      // audio seek target to restore on chapter load
   const lastSaveRef = useRef(0)            // throttle timestamp for progress saves
-  const pageRangeRef = useRef(null)         // paginated: Foliate's visible range for the current page
-  const pageEndRef = useRef(Infinity)      // paginated: end time of last visible word on current page
-  const pageTurningRef = useRef(false)     // paginated: true while a page-turn is in flight (prevents re-entry)
-  const pageTurnAtRef = useRef(0)          // paginated: timestamp of last page-turn (for stuck-latch timeout)
   const rafIdxRef = useRef(-1)            // PERF-5: pending rAF word index (-1 = no scheduled frame)
   const rafHandleRef = useRef(0)          // PERF-5: handle of the in-flight rAF so we can cancel on unmount
   const chapterGenRef = useRef(0)         // CQ-8: increments on chapter change; mapWordsToDOM / highlightWord bail if the gen they were called with is stale
@@ -314,7 +310,7 @@ export default function App() {
     // switch the renderer's flow mode live; foliate re-renders the section
     const view = viewRef.current
     if (view?.renderer?.setAttribute) {
-      try { view.renderer.setAttribute('flow', rendererFlow(prefs.flow)) } catch {}
+      try { view.renderer.setAttribute('flow', 'scrolled') } catch {}
     }
     applyReaderCss()
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -431,8 +427,6 @@ export default function App() {
   useEffect(() => {
     setTimings(null)
     wordSpansRef.current = []
-    pageRangeRef.current = null
-    pageEndRef.current = Infinity
     lastWordIdxRef.current = -1
     // CQ-4: reset the retry counter so chapter A's pending retries can't
     // fire after chapter B's section loads.
@@ -530,27 +524,6 @@ export default function App() {
     // CQ-8: bail if a chapter navigation happened during the build.
     if (gen !== chapterGenRef.current) return
     wordSpansRef.current = spans
-    if (prefsRef.current.flow === 'paginated') updatePageEnd()
-  }
-
-  // Paginated mode: map Foliate's exact visible DOM range to the final aligned
-  // word that starts before the range ends.
-  function updatePageEnd() {
-    pageEndRef.current = Infinity
-    const range = pageRangeRef.current
-    const ws = wordSpansRef.current
-    const t = timingsRef.current
-    if (!range || !ws?.length || !t?.words?.length) return
-    for (let i = Math.min(ws.length, t.words.length) - 1; i >= 0; i--) {
-      const span = ws[i]
-      if (!span?.node) continue
-      try {
-        if (range.comparePoint(span.node, span.offset) <= 0) {
-          pageEndRef.current = t.words[i]?.end ?? Infinity
-          return
-        }
-      } catch {}
-    }
   }
 
   // ---- build a flat text map for the current foliate-view section ----
@@ -581,16 +554,12 @@ export default function App() {
       const n = textMapRetriesRef.current + 1
       textMapRetriesRef.current = n
       if (n <= 10) setTimeout(buildSectionTextMap, 200)
-      // Still clear the page-turn latch even on retry so we don't get
-      // stuck if the retry chain fails.
-      pageTurningRef.current = false
       return
     }
     textMapRetriesRef.current = 0
     textMapRef.current = { fullText: combined, posMap: combinedMap }
     enforceSingleColumn()
     mapWordsToDOM()
-    pageTurningRef.current = false
     if (prefsRef.current.clickToSeek) {
       attachClickToSeek(docs)
     } else {
@@ -613,8 +582,6 @@ export default function App() {
   function enforceSingleColumn() {
     const view = viewRef.current
     if (!view?.renderer) return
-    // Skip in paginated mode — let foliate's columnize() handle layout.
-    if (prefsRef.current.flow === 'paginated') return
     let docs
     try { docs = view.renderer.getContents() } catch { return }
     for (const d of docs || []) {
@@ -642,9 +609,6 @@ export default function App() {
     const handlers = readerHandlersRef.current.get(view)
     if (handlers?.load) {
       try { view.removeEventListener('load', handlers.load) } catch {}
-    }
-    if (handlers?.relocate) {
-      try { view.removeEventListener('relocate', handlers.relocate) } catch {}
     }
     readerHandlersRef.current.delete(view)
     try { view.close?.() } catch {}
@@ -674,7 +638,7 @@ export default function App() {
       // continuous scroll: one smooth native-scroll document per chapter
       // — no transition to jank, and getContents()
       // returns the whole chapter so the text map builds once per chapter.
-      try { view.renderer.setAttribute('flow', rendererFlow(prefsRef.current.flow)) } catch {}
+      try { view.renderer.setAttribute('flow', 'scrolled') } catch {}
       // theme the reader's scroll container (it lives in the paginator's shadow
       // root, so inject a stylesheet there to style its scrollbar per theme).
       try {
@@ -719,17 +683,7 @@ export default function App() {
       // relocate/page-change, which would block the animation frame and stutter.
       const onLoad = () => { buildSectionTextMap(); enforceSingleColumn() }
       view.addEventListener('load', onLoad)
-      // Paginated mode: listen for 'relocate' to detect page changes.
-      // The relocate event fires after every page scroll/turn. We use it
-      // to clear the page-turn latch and update pageEndRef.
-      const onRelocate = ({ detail }) => {
-        if (prefsRef.current.flow !== 'paginated') return
-        pageRangeRef.current = detail?.range ?? null
-        pageTurningRef.current = false
-        updatePageEnd()
-      }
-      view.addEventListener('relocate', onRelocate)
-      readerHandlersRef.current.set(view, { load: onLoad, relocate: onRelocate })
+      readerHandlersRef.current.set(view, { load: onLoad })
       buildSectionTextMap()
       if (pendingNav.current) {
         const idx = sectionIndexMapRef.current[pendingNav.current]
@@ -900,23 +854,6 @@ export default function App() {
     while (lo <= hi) {
       const mid = (lo + hi) >> 1
       if (t.words[mid].start <= now) { idx = mid; lo = mid + 1 } else { hi = mid - 1 }
-    }
-    // Paginated mode: if audio has passed the end of the current page's
-    // last visible word, flip to the next page. The page-turn latch
-    // prevents re-entry until buildSectionTextMap resets it on the
-    // foliate 'load' event (which fires after the page renders).
-    if (prefsRef.current.flow === 'paginated') {
-      // Clear stuck latch: if a page-turn was requested more than 3s ago
-      // but the 'load' event never fired, force-clear so we can retry.
-      if (pageTurningRef.current && performance.now() - pageTurnAtRef.current > 3000) {
-        pageTurningRef.current = false
-      }
-      if (!pageTurningRef.current && a.currentTime >= pageEndRef.current) {
-        pageTurningRef.current = true
-        pageTurnAtRef.current = performance.now()
-        const r = viewRef.current?.renderer
-        if (r && typeof r.next === 'function') r.next().catch(() => {})
-      }
     }
     // PERF-5: coalesce into a single rAF. Skip when the SENTENCE hasn't
     // changed — the whole sentence highlights at once, so re-highlighting
@@ -1315,11 +1252,8 @@ export default function App() {
           and land in the reader. Visually hidden until focused. */}
       <a href="#main-reader" className="skip-link">Skip to reader</a>
       <header className="topbar">
-        <button className="icon-btn sidebar-gear" onClick={() => { setSidebarOpen(o => !o); setShowSettings(true) }} aria-label="Settings" aria-expanded={showSettings && sidebarOpen} aria-controls="settings-panel" title="Settings">
-          <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
-            <circle cx="12" cy="12" r="3" />
-            <path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 1 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 1 1-4 0v-.09a1.65 1.65 0 0 0-1-1.51 1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 1 1-2.83-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 1 1 0-4h.09a1.65 1.65 0 0 0 1.51-1 1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 1 1 2.83-2.83l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 1 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 1 1 2.83 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 1 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z" />
-          </svg>
+        <button className="icon-btn topbar-chapters" onClick={() => { setSidebarOpen(!sidebarOpen || showSettings); setShowSettings(false) }} aria-label={sidebarOpen && !showSettings ? 'Hide chapters' : 'Show chapters'} aria-pressed={sidebarOpen && !showSettings} title="Chapters">
+          <IconMenu />
         </button>
         <h1 className="book-title">{manifest.title}</h1>
         {chapter?.title && <span className="mobile-chapter-title">{chapter.title}</span>}
@@ -1456,7 +1390,7 @@ export default function App() {
       <footer className="player">
         <div className="player-top">
           <div className="player-chapter">
-            <button className="icon-btn" onClick={() => { setShowSettings(false); setSidebarOpen(o => !o) }} aria-label={sidebarOpen && !showSettings ? 'Hide chapters' : 'Show chapters'} aria-pressed={sidebarOpen && !showSettings}><IconMenu /></button>
+            <button className="icon-btn" onClick={() => { setSidebarOpen(!sidebarOpen || !showSettings); setShowSettings(true) }} aria-label="Settings" aria-expanded={showSettings && sidebarOpen} aria-controls="settings-panel" title="Settings"><IconSettings /></button>
             <div className="player-chapter-title">{chapter?.title}</div>
             <div className="player-time">{fmt(currentTime)} / {fmt(duration)}</div>
           </div>
