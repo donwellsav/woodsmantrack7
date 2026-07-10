@@ -85,8 +85,8 @@ function readerCss(theme, prefs) {
       line-height: ${lh} !important;
       -webkit-font-smoothing: antialiased;
     }
-    body { max-width: 38em !important; margin: 0 auto !important; padding: 1em 1.2em !important; }
-    section, section.level1, .level1, section > * { max-width: 38em !important; margin-left: auto !important; margin-right: auto !important; }
+    body { max-width: none !important; width: 100% !important; box-sizing: border-box !important; margin: 0 !important; padding: 1em 1.2em !important; }
+    section, section.level1, .level1, section > * { max-width: none !important; margin-left: 0 !important; margin-right: 0 !important; }
     p { margin: 0 0 1em !important; orphans: 2; widows: 2; }
     h1, h2, h3 { line-height: 1.3 !important; color: ${t.readerFg} !important; }
     a, a:link { color: ${t.link} !important; }
@@ -284,7 +284,6 @@ export default function App() {
   const chapterGenRef = useRef(0)         // CQ-8: increments on chapter change; mapWordsToDOM / highlightWord bail if the gen they were called with is stale
   const lastScrollRef = useRef(0)         // PERF-5: throttle timestamp for scrollIntoView
   const cssDebounceRef = useRef(0)        // PERF-6: debounce timer handle for applyReaderCss
-  const cssRafRef = useRef(0)             // CQ-10: rAF handle for enforceSingleColumn so rapid applyReaderCss calls don't pile up frames
   const isScrubbingRef = useRef(false)    // PERF-9: true while the user is dragging the seek slider
   const epubPromiseRef = useRef(null)     // PERF-10: preloaded EPUB Blob promise (parallel with manifest fetch)
   const readerAttemptRef = useRef(0)      // ignores completion from reader instances replaced by Retry
@@ -319,7 +318,7 @@ export default function App() {
   function applyReaderCss() {
     // PERF-6: debounce so rapid +/- clicks (size, lineHeight) coalesce into a
     // single iframe repaint. Without this, holding "+" produces a stream of
-    // setStyles + enforceSingleColumn calls that visibly stutter on mobile.
+    // setStyles calls that visibly stutter on mobile.
     if (cssDebounceRef.current) clearTimeout(cssDebounceRef.current)
     cssDebounceRef.current = setTimeout(() => {
       cssDebounceRef.current = 0
@@ -327,14 +326,6 @@ export default function App() {
       if (view?.renderer?.setStyles) {
         try { view.renderer.setStyles(readerCss(themeRef.current, prefsRef.current)) } catch {}
       }
-      // re-pin single-column on the next frame (setStyles re-applies the epub CSS).
-      // CQ-10: cancel any pending rAF so rapid applyReaderCss calls don't
-      // accumulate in-flight frames.
-      if (cssRafRef.current) cancelAnimationFrame(cssRafRef.current)
-      cssRafRef.current = requestAnimationFrame(() => {
-        cssRafRef.current = 0
-        try { enforceSingleColumn() } catch {}
-      })
     }, 100)
   }
 
@@ -558,7 +549,6 @@ export default function App() {
     }
     textMapRetriesRef.current = 0
     textMapRef.current = { fullText: combined, posMap: combinedMap }
-    enforceSingleColumn()
     mapWordsToDOM()
     if (prefsRef.current.clickToSeek) {
       attachClickToSeek(docs)
@@ -570,32 +560,6 @@ export default function App() {
           doc.removeEventListener('click', doc.__ctsClick, true)
           doc.__ctsClick = null
         }
-      }
-    }
-  }
-
-  // Force single-column layout on the EPUB body. The pandoc epub stylesheet
-  // sets inline !important max-width: none on the body so it spans the full
-  // viewport. For our narrow reader we explicitly cap it and the wrapping
-  // <section>.
-  // Constrain the EPUB body to a single centered column.
-  function enforceSingleColumn() {
-    const view = viewRef.current
-    if (!view?.renderer) return
-    let docs
-    try { docs = view.renderer.getContents() } catch { return }
-    for (const d of docs || []) {
-      const doc = d.doc
-      if (!doc?.body) continue
-      const max = '38em'
-      doc.body.style.setProperty('max-width', max, 'important')
-      doc.body.style.setProperty('max-height', 'none', 'important')
-      doc.body.style.setProperty('margin', '0 auto', 'important')
-      // also pin the level-1 section wrappers (foliate / pandoc put content there)
-      for (const sec of doc.querySelectorAll('section, .level1, section > *')) {
-        sec.style.setProperty('max-width', max, 'important')
-        sec.style.setProperty('margin-left', 'auto', 'important')
-        sec.style.setProperty('margin-right', 'auto', 'important')
       }
     }
   }
@@ -647,7 +611,13 @@ export default function App() {
           const s = document.createElement('style')
           s.id = 'scrollbar-style'
           s.textContent = `
-            #top { --_max-column-count: 1 !important; --_max-column-count-portrait: 1 !important; }
+            #top {
+              --_gap: 2% !important;
+              /* Foliate requires a pixel cap; keep it above any real viewport. */
+              --_max-inline-size: 100000px !important;
+              --_max-column-count: 1 !important;
+              --_max-column-count-portrait: 1 !important;
+            }
             #container { scrollbar-width: thin; scrollbar-color: var(--scroll-thumb) var(--scroll-track); }
             #container::-webkit-scrollbar { width: 12px; }
             #container::-webkit-scrollbar-track { background: var(--scroll-track); }
@@ -681,7 +651,7 @@ export default function App() {
       }
       // Rebuild the text map only when a section (chapter) loads — NOT on every
       // relocate/page-change, which would block the animation frame and stutter.
-      const onLoad = () => { buildSectionTextMap(); enforceSingleColumn() }
+      const onLoad = () => buildSectionTextMap()
       view.addEventListener('load', onLoad)
       readerHandlersRef.current.set(view, { load: onLoad })
       buildSectionTextMap()
@@ -721,7 +691,6 @@ export default function App() {
       viewRef.current = null
       cleanupFoliateView(view)
       if (rafHandleRef.current) cancelAnimationFrame(rafHandleRef.current)
-      if (cssRafRef.current) cancelAnimationFrame(cssRafRef.current)
       if (cssDebounceRef.current) clearTimeout(cssDebounceRef.current)
     }
   }, [])

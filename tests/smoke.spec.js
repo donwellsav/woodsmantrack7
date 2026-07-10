@@ -104,6 +104,14 @@ test.describe('reader lifecycle', () => {
     await page.getByRole('button', { name: /^The Door/ }).click()
 
     await expect.poll(() => renderedReaderText(page)).toContain(FIRST_CHAPTER_TEXT)
+    const readerWidths = await page.locator('foliate-view').evaluate(view => {
+      const doc = view.renderer.getContents()[0].doc
+      return {
+        body: doc.body.getBoundingClientRect().width,
+        viewport: doc.documentElement.clientWidth,
+      }
+    })
+    expect(readerWidths.body / readerWidths.viewport).toBeGreaterThan(0.9)
     await expect(page.getByRole('button', { name: 'Previous chapter' })).toBeVisible()
     await expect(page.getByRole('button', { name: 'Play' })).toBeVisible()
     await expect(page.getByRole('button', { name: 'Next chapter' })).toBeVisible()
