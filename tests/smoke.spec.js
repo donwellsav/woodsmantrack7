@@ -276,6 +276,17 @@ test.describe('navigation accessibility', () => {
   })
 })
 
+test.describe('visual polish', () => {
+  test('chrome gets a quiet-print finish while the reader stays clean', async ({ page }) => {
+    await page.goto('/')
+    for (const selector of ['.topbar', '.sidebar', '.player']) {
+      expect(await page.locator(selector).evaluate(element =>
+        getComputedStyle(element).backgroundImage)).toContain('url(')
+    }
+    await expect(page.locator('.reader')).toHaveCSS('background-image', 'none')
+  })
+})
+
 test.describe('reading progress', () => {
   test('reading progress stays legible when switching chapters before metadata', async ({ page }) => {
     await routeGeneratedAudio(page)
