@@ -354,6 +354,8 @@ test.describe('playback controls', () => {
     await expect(next).toBeHidden()
     await expect(back).toBeVisible()
     await expect(forward).toBeVisible()
+    await expect(page.locator('.player-time')).toBeVisible()
+    await expect(page.locator('.seek-desktop')).toBeVisible()
     const titleFits = await page.locator('.player-chapter-title').evaluate(title =>
       title.scrollWidth <= title.clientWidth)
     expect(titleFits).toBe(true)
@@ -362,11 +364,15 @@ test.describe('playback controls', () => {
     await expect(back).toBeHidden()
     await expect(forward).toBeHidden()
     await expect(play).toBeVisible()
+    await expect(page.locator('.player-time')).toBeVisible()
+    await expect(page.locator('.seek-desktop')).toBeVisible()
 
     await page.setViewportSize({ width: 375, height: 667 })
     await expect(page.getByRole('button', { name: 'Settings' })).toBeVisible()
     expect(await page.locator('.player-chapter-title').evaluate(title =>
       title.scrollWidth <= title.clientWidth)).toBe(true)
+    await expect(page.locator('.player-time')).toBeHidden()
+    await expect(page.locator('.seek-desktop')).toBeHidden()
     const seekToggle = page.getByRole('button', { name: 'Open seek slider' })
     const footer = page.locator('footer.player')
     const [toggleBox, playBox, collapsedFooter] = await Promise.all([
@@ -380,6 +386,13 @@ test.describe('playback controls', () => {
     await expect(page.getByRole('button', { name: 'Collapse seek slider' })).toBeVisible()
     const expandedFooter = await footer.boundingBox()
     expect(Math.abs(expandedFooter.height - collapsedFooter.height)).toBeLessThan(1)
+
+    await page.getByRole('button', { name: 'Collapse seek slider' }).click()
+    await page.setViewportSize({ width: 280, height: 640 })
+    await expect(page.locator('.player-chapter-title')).toBeHidden()
+    await expect(page.getByRole('button', { name: 'Settings' })).toBeVisible()
+    await expect(play).toBeVisible()
+    await expect(page.locator('.seek-toggle-time')).toBeVisible()
     await expect.poll(() => page.evaluate(() =>
       document.documentElement.scrollWidth <= window.innerWidth)).toBe(true)
   })

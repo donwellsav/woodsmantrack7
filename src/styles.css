@@ -435,6 +435,9 @@ body {
   .seek::-webkit-slider-thumb { width: 18px; height: 18px; }
   .seek::-moz-range-thumb { width: 18px; height: 18px; }
 }
+@media (max-width: 300px) {
+  .player-chapter-title { display: none; }
+}
 /* PERF-7: PWA update prompt toast. Surfaced when vite-plugin-pwa detects a
    waiting SW (new bundle deployed). Stays out of the way until the user
    chooses to reload at a natural break. */
