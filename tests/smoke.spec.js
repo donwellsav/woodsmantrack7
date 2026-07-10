@@ -83,6 +83,8 @@ test.describe('reader lifecycle', () => {
     const [titleBox, bylineBox] = await Promise.all([title.boundingBox(), byline.boundingBox()])
     expect(bylineBox.y).toBeGreaterThan(titleBox.y)
     await expect(page.locator('header.topbar')).toHaveCSS('height', '52px')
+    await expect(title).toHaveCSS('font-size', '16px')
+    await expect(byline).toHaveCSS('font-size', '12.16px')
 
     await page.setViewportSize({ width: 390, height: 844 })
     await expect(page.locator('header.topbar')).toHaveCSS('height', '52px')
@@ -386,8 +388,8 @@ test.describe('playback controls', () => {
     const [toggleBox, playBox, collapsedFooter] = await Promise.all([
       seekToggle.boundingBox(), play.boundingBox(), footer.boundingBox(),
     ])
-    expect(toggleBox.height).toBe(36)
-    expect(await seekToggle.evaluate(button => parseFloat(getComputedStyle(button).fontSize))).toBeGreaterThanOrEqual(13)
+    expect(toggleBox.height).toBe(28)
+    expect(await seekToggle.evaluate(button => parseFloat(getComputedStyle(button).fontSize))).toBeGreaterThanOrEqual(15)
     expect(toggleBox.y).toBeLessThan(playBox.y)
     await seekToggle.click()
     await expect(seekToggle).toBeHidden()
