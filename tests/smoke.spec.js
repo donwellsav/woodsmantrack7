@@ -333,6 +333,7 @@ test.describe('playback controls', () => {
     const previous = page.getByRole('button', { name: 'Previous chapter' })
     const play = page.getByRole('button', { name: 'Play' })
     const next = page.getByRole('button', { name: 'Next chapter' })
+    const footer = page.locator('footer.player')
     await expect(back).toBeVisible()
     await expect(forward).toBeVisible()
     await expect(previous).toBeVisible()
@@ -350,10 +351,7 @@ test.describe('playback controls', () => {
     const chaptersToggle = page.locator('header.topbar').getByRole('button', { name: /chapters/i })
     if (await chaptersToggle.getAttribute('aria-pressed') !== 'true') await chaptersToggle.click()
     await page.getByRole('button', { name: /^August in Harmony Park/ }).click()
-    await expect(previous).toBeHidden()
-    await expect(next).toBeHidden()
-    await expect(back).toBeVisible()
-    await expect(forward).toBeVisible()
+    for (const control of [previous, back, play, forward, next]) await expect(control).toBeVisible()
     await expect(page.locator('.player-time')).toBeVisible()
     await expect(page.locator('.seek-desktop')).toBeVisible()
     const titleFits = await page.locator('.player-chapter-title').evaluate(title =>
@@ -361,20 +359,28 @@ test.describe('playback controls', () => {
     expect(titleFits).toBe(true)
 
     await page.setViewportSize({ width: 800, height: 700 })
-    await expect(back).toBeHidden()
-    await expect(forward).toBeHidden()
-    await expect(play).toBeVisible()
+    for (const control of [previous, back, play, forward, next]) await expect(control).toBeVisible()
     await expect(page.locator('.player-time')).toBeVisible()
     await expect(page.locator('.seek-desktop')).toBeVisible()
 
     await page.setViewportSize({ width: 375, height: 667 })
     await expect(page.getByRole('button', { name: 'Settings' })).toBeVisible()
+    await expect(footer).toHaveAttribute('data-control-priority', '2')
+    await expect(previous).toBeHidden()
+    await expect(next).toBeHidden()
+    await expect(back).toBeHidden()
+    await expect(forward).toBeHidden()
     expect(await page.locator('.player-chapter-title').evaluate(title =>
       title.scrollWidth <= title.clientWidth)).toBe(true)
     await expect(page.locator('.player-time')).toBeHidden()
     await expect(page.locator('.seek-desktop')).toBeHidden()
     const seekToggle = page.getByRole('button', { name: 'Open seek slider' })
-    const footer = page.locator('footer.player')
+
+    await page.getByRole('button', { name: 'Show chapters' }).click()
+    await page.getByRole('button', { name: /^The Door/ }).click()
+    await expect(footer).toHaveAttribute('data-control-priority', '0')
+    for (const control of [previous, back, play, forward, next]) await expect(control).toBeVisible()
+
     const [toggleBox, playBox, collapsedFooter] = await Promise.all([
       seekToggle.boundingBox(), play.boundingBox(), footer.boundingBox(),
     ])
@@ -389,7 +395,12 @@ test.describe('playback controls', () => {
 
     await page.getByRole('button', { name: 'Collapse seek slider' }).click()
     await page.setViewportSize({ width: 280, height: 640 })
-    await expect(page.locator('.player-chapter-title')).toBeHidden()
+    await expect(footer).toHaveAttribute('data-control-priority', '1')
+    await expect(page.locator('.player-chapter-title')).toBeVisible()
+    await expect(previous).toBeHidden()
+    await expect(next).toBeHidden()
+    await expect(back).toBeVisible()
+    await expect(forward).toBeVisible()
     await expect(page.getByRole('button', { name: 'Settings' })).toBeVisible()
     await expect(play).toBeVisible()
     await expect(page.locator('.seek-toggle-time')).toBeVisible()

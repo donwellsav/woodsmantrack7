@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState, useCallback } from 'react'
+import { useEffect, useLayoutEffect, useRef, useState, useCallback } from 'react'
 import ErrorBoundary from './ErrorBoundary.jsx'
 import SettingsPanel from './SettingsPanel.jsx'
 import { FONTS, loadPrefs } from './prefs.js'
@@ -239,6 +239,8 @@ export default function App() {
   // UX-03: on mobile, the seek slider lives in a collapsible accordion so the
   // player bar can stay compact and the slider only takes full width when open.
   const [seekExpanded, setSeekExpanded] = useState(false)
+  const [mobileControlLevel, setMobileControlLevel] = useState(0)
+  const playerTopRef = useRef(null)
   // UX-01: when the user resizes to mobile, collapse the sidebar so it doesn't
   // cover the reader content. Re-open when resizing back to desktop only if the
   // user didn't explicitly close it themselves.
@@ -404,6 +406,31 @@ export default function App() {
   }, [])
 
   const chapter = manifest?.chapters[currentIndex]
+
+  // Hide low-priority mobile controls only when this title actually needs the
+  // room. Fixed viewport breakpoints hid controls even when everything fit.
+  useLayoutEffect(() => {
+    const playerTop = playerTopRef.current
+    if (!playerTop) return
+    const update = () => {
+      if (!window.matchMedia('(max-width: 720px)').matches) {
+        setMobileControlLevel(0)
+        return
+      }
+      const title = playerTop.querySelector('.player-chapter-title')
+      const range = document.createRange()
+      if (title) range.selectNodeContents(title)
+      const titleWidth = Math.ceil(title ? range.getBoundingClientRect().width : 0)
+      const required = 44 + 6 + titleWidth + 6 + 44
+      const available = playerTop.clientWidth
+      const level = required + 176 <= available ? 0 : required + 88 <= available ? 1 : 2
+      setMobileControlLevel(current => current === level ? current : level)
+    }
+    update()
+    const observer = new ResizeObserver(update)
+    observer.observe(playerTop)
+    return () => observer.disconnect()
+  }, [chapter?.title])
 
   // A11Y-12: Esc closes the settings panel; the old SettingsModal had this
   // and the inline-panel refactor lost it. Restores keyboard parity.
@@ -1338,7 +1365,7 @@ export default function App() {
         </main>
       </div>
 
-      <footer className="player">
+      <footer className="player" data-control-priority={mobileControlLevel}>
         <button
           className="seek-toggle mobile-only"
           onClick={() => setSeekExpanded(true)}
@@ -1367,7 +1394,7 @@ export default function App() {
             {seekSlider}
           </div>
         </div>
-        <div className="player-top">
+        <div className="player-top" ref={playerTopRef}>
           <div className="player-chapter">
             <button className="icon-btn" onClick={() => { setSidebarOpen(!sidebarOpen || !showSettings); setShowSettings(true) }} aria-label="Settings" aria-expanded={showSettings && sidebarOpen} aria-controls="settings-panel" title="Settings"><IconSettings /></button>
             <div className="player-chapter-title">{chapter?.title}</div>

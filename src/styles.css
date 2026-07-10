@@ -378,14 +378,6 @@ body {
   font-size: 0.85rem; color: var(--text-dim); font-variant-numeric: tabular-nums;
 }
 
-/* Player controls disappear from lowest to highest priority as room tightens. */
-@media (max-width: 1100px) {
-  .chapter-skip { display: none; }
-}
-@media (max-width: 900px) {
-  .seek-step { display: none; }
-}
-
 @media (max-width: 720px) {
   .sidebar { position: absolute; z-index: 10; top: 0; height: 100%; box-shadow: var(--shadow); }
   .sidebar:not(.closed) + .sidebar-backdrop {
@@ -407,6 +399,9 @@ body {
   .player-controls { gap: 0; margin-left: auto; }
   .player-chapter { flex: 1 0 auto; width: auto; min-width: max-content; max-width: 100%; }
   .player-chapter-title { flex: 1; font-size: 1rem; }
+  .player[data-control-priority='1'] .chapter-skip,
+  .player[data-control-priority='2'] .chapter-skip,
+  .player[data-control-priority='2'] .seek-step { display: none; }
   .player-time { display: none; }
   .seek-desktop { display: none; }
   .seek-toggle {
@@ -434,9 +429,6 @@ body {
   .chapter-item { padding: 12px 16px; }
   .seek::-webkit-slider-thumb { width: 18px; height: 18px; }
   .seek::-moz-range-thumb { width: 18px; height: 18px; }
-}
-@media (max-width: 300px) {
-  .player-chapter-title { display: none; }
 }
 /* PERF-7: PWA update prompt toast. Surfaced when vite-plugin-pwa detects a
    waiting SW (new bundle deployed). Stays out of the way until the user
