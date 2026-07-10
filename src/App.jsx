@@ -2,6 +2,7 @@ import { useEffect, useRef, useState, useCallback } from 'react'
 import ErrorBoundary from './ErrorBoundary.jsx'
 import SettingsPanel from './SettingsPanel.jsx'
 import { FONTS, loadPrefs, rendererFlow } from './prefs.js'
+import { PROGRESS_KEY, bookPercentage, parseProgress, updateProgress } from './progress.js'
 
 // In production, audio is served from Cloudflare R2 via a custom domain
 // (audio.donewellbooks.com) bound to the woodsman-audio bucket. R2 gives us
@@ -13,7 +14,6 @@ const MANIFEST_URL = (typeof window !== 'undefined' && window.location.hostname 
   ? '/chapters.json' : './chapters.json'
 const AUDIO_BASE = (typeof window !== 'undefined' && window.location.hostname === 'localhost')
   ? '/audio' : 'https://audio.donewellbooks.com'
-const PROGRESS_KEY = 'woodsman-progress-v1'
 const THEME_KEY = 'woodsman-theme-v1'
 const SAVE_INTERVAL_MS = 3000 // throttle audio-position saves
 const FOLIATE_UPGRADE_TIMEOUT_MS = 5000
@@ -213,12 +213,15 @@ const IconChevron = ({ direction = 'up' }) => (
 
 export default function App() {
   const [manifest, setManifest] = useState(null)
-  const [currentIndex, setCurrentIndex] = useState(0)
+  const [progress, setProgress] = useState(() => {
+    try { return parseProgress(localStorage.getItem(PROGRESS_KEY)) } catch { return parseProgress(null) }
+  })
+  const progressRef = useRef(progress)
+  const [currentIndex, setCurrentIndex] = useState(progress.currentIndex)
   // CQ-16: mirror so applySeek (which fires async on loadedmetadata) reads the
   // current chapter index, not the one captured at the render that scheduled
   // the listener.
-  const currentIndexRef = useRef(0)
-  useEffect(() => { currentIndexRef.current = currentIndex }, [currentIndex])
+  const currentIndexRef = useRef(progress.currentIndex)
   const [isPlaying, setIsPlaying] = useState(false)
   const [currentTime, setCurrentTime] = useState(0)
   const [duration, setDuration] = useState(0)
@@ -274,7 +277,7 @@ export default function App() {
   const lastWordIdxRef = useRef(-1)
   const sentenceMapRef = useRef([])       // [{ start, end }] word-index range per sentence
   const wordToSentenceRef = useRef([])    // wordIdx -> sentenceIdx reverse lookup
-  const pendingSeekRef = useRef(0)         // audio seek target to restore on chapter load
+  const pendingSeekRef = useRef(null)      // audio seek target to restore on chapter load
   const lastSaveRef = useRef(0)            // throttle timestamp for progress saves
   const pageEndRef = useRef(Infinity)      // paginated: end time of last visible word on current page
   const pageTurningRef = useRef(false)     // paginated: true while a page-turn is in flight (prevents re-entry)
@@ -339,14 +342,17 @@ export default function App() {
   }
 
   // ---- reading-progress persistence ----
-  function saveProgress(idx, time) {
-    try {
-      localStorage.setItem(PROGRESS_KEY, JSON.stringify({
-        currentIndex: idx,
-        currentTime: Math.max(0, time || 0),
-        updatedAt: Date.now(),
-      }))
-    } catch {}
+  function saveProgress(idx, time, duration, completed) {
+    const next = updateProgress(progressRef.current, {
+      currentIndex: idx,
+      currentTime: time,
+      duration,
+      completed,
+    })
+    progressRef.current = next
+    setProgress(next)
+    try { localStorage.setItem(PROGRESS_KEY, JSON.stringify(next)) } catch {}
+    return next
   }
 
   // ---- reading-progress persistence (continued below after `chapter` decl) ----
@@ -355,7 +361,12 @@ export default function App() {
   useEffect(() => {
     const flush = () => {
       const a = audioRef.current
-      saveProgress(currentIndex, a?.currentTime || 0)
+      const idx = currentIndexRef.current
+      const saved = progressRef.current
+      const time = a?.readyState >= 1
+        ? a.currentTime
+        : saved.chapters[idx]?.seconds ?? (saved.currentIndex === idx ? saved.currentTime : 0)
+      saveProgress(idx, time, manifest?.chapters[idx]?.duration || a?.duration)
     }
     // CQ-2: hoist the visibilitychange handler to a named function so the
     // cleanup can remove it. The previous anonymous handler leaked across
@@ -368,7 +379,7 @@ export default function App() {
       document.removeEventListener('visibilitychange', onVis)
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [currentIndex])
+  }, [currentIndex, manifest])
 
   // ---- load manifest ----
   useEffect(() => {
@@ -391,13 +402,12 @@ export default function App() {
       setManifest(m)
       setLoading(false)
       // restore last position
-      try {
-        const saved = JSON.parse(localStorage.getItem(PROGRESS_KEY) || 'null')
-        if (saved && typeof saved.currentIndex === 'number' && saved.currentIndex < m.chapters.length) {
-          setCurrentIndex(saved.currentIndex)
-          pendingSeekRef.current = saved.currentTime || 0
-        }
-      } catch {}
+      const saved = progressRef.current
+      const idx = saved.currentIndex < m.chapters.length ? saved.currentIndex : 0
+      currentIndexRef.current = idx
+      setCurrentIndex(idx)
+      pendingSeekRef.current = saved.chapters[idx]?.seconds
+        ?? (saved.currentIndex === idx ? saved.currentTime : 0)
     }).catch(err => {
       // eslint-disable-next-line no-console
       console.error('manifest load failed:', err)
@@ -407,16 +417,6 @@ export default function App() {
   }, [])
 
   const chapter = manifest?.chapters[currentIndex]
-
-  // persist the active chapter whenever it changes (fresh start; accurate
-  // position is persisted by the throttled save in onTimeUpdate).
-  // CQ-6: include `manifest` + `chapter` in deps so the first render after
-  // manifest lands doesn't read a stale closure. The effect MUST be declared
-  // after `const chapter` (above) to avoid the TDZ — Vite 7 / strict-mode
-  // caught what Vite 5 silently allowed.
-  useEffect(() => {
-    if (manifest && chapter) saveProgress(currentIndex, 0)
-  }, [currentIndex, manifest, chapter])
 
   // A11Y-12: Esc closes the settings panel; the old SettingsModal had this
   // and the inline-panel refactor lost it. Restores keyboard parity.
@@ -892,13 +892,21 @@ export default function App() {
   useEffect(() => {
     const audio = audioRef.current
     if (!chapter || !audio) return
+    // restore saved position for this chapter (set by mount restore or a manual resume)
+    const saved = progressRef.current
+    const seekTarget = pendingSeekRef.current
+      ?? saved.chapters[currentIndex]?.seconds
+      ?? (saved.currentIndex === currentIndex ? saved.currentTime : 0)
+    pendingSeekRef.current = null
+    saveProgress(currentIndex, seekTarget, chapter.duration)
+    setCurrentTime(seekTarget)
+    setDuration(chapter.duration || 0)
+    // Ignore the native zero-position timeupdate emitted while load() swaps
+    // sources; seekTarget above is authoritative until metadata arrives.
+    lastSaveRef.current = Date.now()
+    currentIndexRef.current = currentIndex
     audio.src = `${AUDIO_BASE}/${chapter.audio}`
     audio.load()
-    setCurrentTime(0)
-    setDuration(chapter.duration || 0)
-    // restore saved position for this chapter (set by mount restore or a manual resume)
-    const seekTarget = pendingSeekRef.current
-    pendingSeekRef.current = 0
     if (seekTarget > 0 && isFinite(seekTarget)) {
       // CQ-3: stash the listener in a ref so the chapter-change effect can
       // remove it if the user navigates away before metadata loads. Without
@@ -909,10 +917,9 @@ export default function App() {
         setCurrentTime(seekTarget)
         // CQ-16: read from ref so a slow loadedmetadata can't save the wrong
         // chapter's progress.
-        saveProgress(currentIndexRef.current, seekTarget)
+        saveProgress(currentIndexRef.current, seekTarget, chapter.duration || audio.duration)
         // CQ-21: bump the throttle so the next onTimeUpdate doesn't immediately
-        // fire another save (and potentially race with the chapter-load effect's
-        // saveProgress(currentIndex, 0)).
+        // duplicate the restored-position save above.
         lastSaveRef.current = Date.now()
         audio.removeEventListener('loadedmetadata', applySeek)
         applySeekRef.current = null
@@ -945,7 +952,8 @@ export default function App() {
     const tNow = Date.now()
     if (tNow - lastSaveRef.current > SAVE_INTERVAL_MS) {
       lastSaveRef.current = tNow
-      saveProgress(currentIndex, a.currentTime)
+      const idx = currentIndexRef.current
+      saveProgress(idx, a.currentTime, manifest?.chapters[idx]?.duration || a.duration)
     }
     const t = timingsRef.current
     if (!t || !t.words || !t.words.length) return
@@ -1000,9 +1008,28 @@ export default function App() {
     setDuration(audio.duration || 0)
   }
   const advancingRef = useRef(false)
+  const activateChapter = useCallback((idx) => {
+    const oldIndex = currentIndexRef.current
+    if (!manifest || idx === oldIndex || idx < 0 || idx >= manifest.chapters.length) return
+
+    const audio = audioRef.current
+    const saved = progressRef.current
+    const oldSeconds = audio?.readyState >= 1
+      ? audio.currentTime
+      : saved.chapters[oldIndex]?.seconds ?? (saved.currentIndex === oldIndex ? saved.currentTime : 0)
+    const targetSeconds = saved.chapters[idx]?.seconds
+      ?? (saved.currentIndex === idx ? saved.currentTime : 0)
+
+    saveProgress(oldIndex, oldSeconds, manifest.chapters[oldIndex]?.duration || audio?.duration)
+    pendingSeekRef.current = targetSeconds
+    setCurrentIndex(idx)
+  }, [manifest])
   const onEnded = () => {
-    if (manifest && currentIndex < manifest.chapters.length - 1) {
-      setCurrentIndex(i => i + 1)
+    const idx = currentIndexRef.current
+    const end = manifest?.chapters[idx]?.duration || audioRef.current?.duration || 0
+    saveProgress(idx, end, end, true)
+    if (manifest && idx < manifest.chapters.length - 1) {
+      activateChapter(idx + 1)
     } else {
       // End of book: turn off continuous-playback mode so the next pause
       // is treated as a real user pause.
@@ -1192,16 +1219,20 @@ export default function App() {
     }
   }
   const selectChapter = useCallback((idx) => {
-    setCurrentIndex(idx)
+    activateChapter(idx)
     // UX-01: on mobile, selecting a chapter should close the drawer so the user
     // can see the reader immediately instead of manually dismissing the panel.
     if (isMobile()) setSidebarOpen(false)
-  }, [])
+  }, [activateChapter])
   // CQ-15: memoize next/prev with useCallback so they don't re-allocate every
   // render. The Media Session effect (and any other consumer) gets stable
   // references.
-  const next = useCallback(() => setCurrentIndex(i => Math.min(i + 1, (manifest?.chapters.length || 1) - 1)), [manifest])
-  const prev = useCallback(() => setCurrentIndex(i => Math.max(i - 1, 0)), [])
+  const next = useCallback(() => {
+    activateChapter(Math.min(currentIndexRef.current + 1, (manifest?.chapters.length || 1) - 1))
+  }, [activateChapter, manifest])
+  const prev = useCallback(() => {
+    activateChapter(Math.max(currentIndexRef.current - 1, 0))
+  }, [activateChapter])
   // A11Y-15: seek by a fixed offset from the lock-screen/notification controls.
   const seekBy = useCallback((delta) => {
     const audio = audioRef.current
@@ -1302,6 +1333,12 @@ export default function App() {
     )
   }
 
+  const continueIndex = progress.currentIndex < manifest.chapters.length ? progress.currentIndex : 0
+  const continueChapter = manifest.chapters[continueIndex]
+  const continueSeconds = progress.chapters[continueIndex]?.seconds
+    ?? (progress.currentIndex === continueIndex ? progress.currentTime : 0)
+  const percentage = bookPercentage(progress, manifest.chapters)
+
   const seekSlider = (
     <input
       className="seek"
@@ -1365,40 +1402,67 @@ export default function App() {
               prefs={prefs} setPrefs={setPrefs}
             />
           ) : (
-            // A11Y-07: wrap the chapter list in a <nav> with aria-labelledby
-            // so screen-reader landmark navigation finds it.
-            <nav aria-labelledby="chapters-heading">
-              <ol className="chapter-list">
-                {manifest.chapters.map((c, i) => (
-                  <li key={c.id}>
-                    {/* A11Y-08: aria-current tells screen-reader users which
-                        chapter is active. Critical for an audiobook: the
-                        user must know where they are. */}
-                    <button
-                      className={`chapter-item ${i === currentIndex ? 'active' : ''}`}
-                      onClick={() => selectChapter(i)}
-                      aria-current={i === currentIndex ? 'true' : undefined}
-                    >
-                      <span className="chapter-title">{c.title}</span>
-                      <span className="chapter-meta">
-                        {c.type === 'title-only' && (
-                          <span className="badge" aria-label="Part title only chapter (no audio)">
-                            {c.id === 'ch003' ? 'Part I'
-                              : c.id === 'ch009' ? 'Part II'
-                              : c.id === 'ch016' ? 'Part III'
-                              : c.id === 'ch024' ? 'Part IV'
-                              : c.id === 'ch028' ? 'Part V'
-                              : 'title'}
+            <>
+              <div className="progress-summary">
+                {continueSeconds > 0 && (
+                  <div className="continue-cue">
+                    Continue from {continueChapter.title} · {fmt(continueSeconds)}
+                  </div>
+                )}
+                <span className="book-progress" aria-label={`Book progress: ${percentage}%`}>
+                  {percentage}% of book
+                </span>
+              </div>
+              {/* A11Y-07: wrap the chapter list in a <nav> with aria-labelledby
+                  so screen-reader landmark navigation finds it. */}
+              <nav aria-labelledby="chapters-heading">
+                <ol className="chapter-list">
+                  {manifest.chapters.map((c, i) => {
+                    const saved = progress.chapters[i]
+                    const seconds = saved?.seconds ?? (progress.currentIndex === i ? progress.currentTime : 0)
+                    const completed = saved?.completed === true || (c.duration > 0 && seconds >= c.duration)
+                    const chapterPercentage = c.duration > 0
+                      ? Math.min(100, Math.round((seconds / c.duration) * 100))
+                      : 0
+                    return (
+                      <li key={c.id}>
+                        {/* A11Y-08: aria-current tells screen-reader users which
+                            chapter is active. Critical for an audiobook: the
+                            user must know where they are. */}
+                        <button
+                          className={`chapter-item ${i === currentIndex ? 'active' : ''}`}
+                          onClick={() => selectChapter(i)}
+                          aria-current={i === currentIndex ? 'true' : undefined}
+                        >
+                          <span className="chapter-title">{c.title}</span>
+                          <span className="chapter-meta">
+                            {c.type === 'title-only' && (
+                              <span className="badge" aria-label="Part title only chapter (no audio)">
+                                {c.id === 'ch003' ? 'Part I'
+                                  : c.id === 'ch009' ? 'Part II'
+                                  : c.id === 'ch016' ? 'Part III'
+                                  : c.id === 'ch024' ? 'Part IV'
+                                  : c.id === 'ch028' ? 'Part V'
+                                  : 'title'}
+                              </span>
+                            )}
+                            {c.type === 'front-matter' && <span className="badge alt" aria-label="Front matter">intro</span>}
+                            {fmt(c.duration)}
+                            {completed ? (
+                              <span className="chapter-progress complete" aria-label="Completed">✓</span>
+                            ) : chapterPercentage > 0 ? (
+                              <span className="chapter-progress" aria-label={`${chapterPercentage}% complete`}>
+                                {chapterPercentage}%
+                              </span>
+                            ) : null}
                           </span>
-                        )}
-                        {c.type === 'front-matter' && <span className="badge alt" aria-label="Front matter">intro</span>}
-                        {fmt(c.duration)}
-                      </span>
-                    </button>
-                  </li>
-                ))}
-              </ol>
-            </nav>
+                        </button>
+                      </li>
+                    )
+                  })}
+                </ol>
+              </nav>
+            </>
           )}
         </aside>
         {/* UX-01: mobile backdrop. Tapping outside the sidebar closes the drawer. */}

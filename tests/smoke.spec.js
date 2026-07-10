@@ -22,6 +22,26 @@ function makeSilentWav(seconds = 60) {
   return wav
 }
 
+async function routeGeneratedAudio(page) {
+  const wav = makeSilentWav()
+  await page.route('http://localhost:4173/audio/**', route => {
+    const range = /bytes=(\d+)-(\d*)/.exec(route.request().headers().range || '')
+    const start = range ? Number(range[1]) : 0
+    const end = Math.min(range?.[2] ? Number(range[2]) : wav.length - 1, wav.length - 1)
+    const body = wav.subarray(start, end + 1)
+    return route.fulfill({
+      status: range ? 206 : 200,
+      contentType: 'audio/wav',
+      headers: {
+        'Accept-Ranges': 'bytes',
+        'Content-Length': String(body.length),
+        ...(range && { 'Content-Range': `bytes ${start}-${end}/${wav.length}` }),
+      },
+      body,
+    })
+  })
+}
+
 async function renderedReaderText(page) {
   return page.locator('foliate-view').evaluate(view =>
     (view.renderer?.getContents?.() ?? [])
@@ -136,25 +156,48 @@ test.describe('preferences', () => {
   })
 })
 
+test.describe('reading progress', () => {
+  test('reading progress stays legible when switching chapters before metadata', async ({ page }) => {
+    await routeGeneratedAudio(page)
+    let releaseDoorAudio
+    const doorAudioGate = new Promise(resolve => { releaseDoorAudio = resolve })
+    await page.route(url => decodeURIComponent(url.pathname).endsWith('02_The Door.mp3'), async route => {
+      await doorAudioGate
+      await route.fallback()
+    })
+
+    await page.goto('/')
+    await page.addInitScript(progress => {
+      if (window.top === window) {
+        localStorage.setItem('woodsman-progress-v1', JSON.stringify(progress))
+      }
+    }, {
+      currentIndex: 1,
+      currentTime: 754,
+      chapters: {
+        0: { seconds: 2.69, duration: 2.69, completed: true },
+        1: { seconds: 754, duration: 950.69, completed: false },
+      },
+    })
+    await page.reload()
+
+    await expect(page.getByText('Continue from The Door · 12:34', { exact: true })).toBeVisible()
+    await expect(page.getByRole('button', { name: /^Introduction/ }).getByLabel('Completed')).toBeVisible()
+    await expect(page.getByRole('button', { name: /^The Door/ }).getByLabel('79% complete')).toBeVisible()
+    await expect(page.getByText('2% of book', { exact: true })).toBeVisible()
+
+    await page.getByRole('button', { name: /^The Park/ }).click()
+    releaseDoorAudio()
+    await expect.poll(() => page.evaluate(() => {
+      const saved = JSON.parse(localStorage.getItem('woodsman-progress-v1'))
+      return { currentIndex: saved.currentIndex, doorSeconds: saved.chapters[1].seconds }
+    })).toEqual({ currentIndex: 2, doorSeconds: 754 })
+  })
+})
+
 test.describe('playback controls', () => {
   test.beforeEach(async ({ page }) => {
-    const wav = makeSilentWav()
-    await page.route('http://localhost:4173/audio/**', route => {
-      const range = /bytes=(\d+)-(\d*)/.exec(route.request().headers().range || '')
-      const start = range ? Number(range[1]) : 0
-      const end = Math.min(range?.[2] ? Number(range[2]) : wav.length - 1, wav.length - 1)
-      const body = wav.subarray(start, end + 1)
-      return route.fulfill({
-        status: range ? 206 : 200,
-        contentType: 'audio/wav',
-        headers: {
-          'Accept-Ranges': 'bytes',
-          'Content-Length': String(body.length),
-          ...(range && { 'Content-Range': `bytes ${start}-${end}/${wav.length}` }),
-        },
-        body,
-      })
-    })
+    await routeGeneratedAudio(page)
   })
 
   test('playback controls persist speed and apply it immediately and on metadata', async ({ page }) => {
