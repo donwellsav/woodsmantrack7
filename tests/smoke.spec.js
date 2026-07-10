@@ -185,20 +185,30 @@ test.describe('paginated reading', () => {
     await page.getByRole('button', { name: 'Page' }).click()
     await expect.poll(() => rendererFlow(page)).toBe('paginated')
 
-    const pastChapterBoundary = await page.evaluate(async () => {
+    const { midChapterTime, lastWordEnd } = await page.evaluate(async () => {
       const { words } = await fetch('/timings/ch002.json').then(response => response.json())
-      return words.at(-1).end + 0.01
+      return {
+        midChapterTime: words[Math.floor(words.length / 2)].end,
+        lastWordEnd: words.at(-1).end,
+      }
     })
+    expect(midChapterTime).toBeLessThan(lastWordEnd)
     await expect.poll(() => page.locator('audio').evaluate(audio => audio.duration))
-      .toBeGreaterThan(pastChapterBoundary)
+      .toBeGreaterThan(midChapterTime)
+
+    await expect.poll(() => page.locator('foliate-view').evaluate(view =>
+      Boolean(view.lastLocation?.range))).toBe(true)
+    expect(await page.locator('foliate-view').evaluate(view =>
+      typeof view.renderer?.next)).toBe('function')
 
     await page.locator('foliate-view').evaluate(view => {
       const renderer = view.renderer
       const next = renderer.next
       window.__pageTurnCalls = 0
-      renderer.next = function (...args) {
+      renderer.next = async function (...args) {
+        const result = await next.apply(this, args)
         window.__pageTurnCalls += 1
-        return next.apply(this, args)
+        return result
       }
     })
 
@@ -207,7 +217,7 @@ test.describe('paginated reading', () => {
         audio.currentTime = target
         audio.dispatchEvent(new Event('timeupdate'))
         return window.__pageTurnCalls
-      }, pastChapterBoundary)
+      }, midChapterTime)
     }).toBeGreaterThan(0)
   })
 })
