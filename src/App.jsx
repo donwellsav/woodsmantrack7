@@ -1215,21 +1215,32 @@ export default function App() {
   const percentage = bookPercentage(progress, manifest.chapters)
   const seekProgress = duration > 0 ? Math.min(100, Math.max(0, currentTime / duration * 100)) : 0
 
+  const commitSeek = (event) => {
+    const t = parseFloat(event.currentTarget.value)
+    isScrubbingRef.current = false
+    try {
+      if (event.currentTarget.hasPointerCapture(event.pointerId)) {
+        event.currentTarget.releasePointerCapture(event.pointerId)
+      }
+    } catch {}
+    setCurrentTime(t)
+    if (audioRef.current) audioRef.current.currentTime = t
+    lastWordIdxRef.current = -1
+    onTimeUpdate()
+  }
+
   const seekSlider = (
     <input
-      className="seek"
-      type="range" min={0} max={duration || 0} value={currentTime}
+      className="seek" type="range" min={0} max={duration || 0} step={0.1} value={currentTime}
       style={{ '--seek-progress': `${seekProgress}%` }}
       aria-label="Seek audio position"
-      onPointerDown={() => { isScrubbingRef.current = true }}
-      onPointerUp={() => {
-        // PERF-9: only commit the actual audio.currentTime at pointer-up so
-        // dragging the slider doesn't queue dozens of redundant seeks.
-        isScrubbingRef.current = false
-        if (audioRef.current) audioRef.current.currentTime = currentTime
-        lastWordIdxRef.current = -1
-        onTimeUpdate()
+      aria-valuetext={`${fmt(currentTime)} of ${fmt(duration)}`}
+      onPointerDown={(event) => {
+        isScrubbingRef.current = true
+        try { event.currentTarget.setPointerCapture(event.pointerId) } catch {}
       }}
+      onPointerUp={commitSeek}
+      onPointerCancel={commitSeek}
       onChange={(e) => {
         const t = parseFloat(e.target.value)
         // While dragging, just update state for the slider thumb; the audio
