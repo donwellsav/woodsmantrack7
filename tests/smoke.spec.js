@@ -218,9 +218,14 @@ test.describe('preferences', () => {
       ['Georgia', 'Georgia'],
       ['System serif', 'Times New Roman'],
     ]
+    const pickerFamilies = await settings.locator('.font-item').evaluateAll(buttons =>
+      buttons.map(button => getComputedStyle(button).fontFamily))
+    for (let i = 0; i < selections.length; i += 1) {
+      expect(pickerFamilies[i]).toContain(selections[i][1])
+    }
     for (const [label, family] of selections) {
       await settings.locator('.font-name').filter({ hasText: new RegExp(`^${label}$`) }).locator('..').click()
-      await expect.poll(() => page.locator('.app, .book-title, .player-chapter-title, .font-name')
+      await expect.poll(() => page.locator('.app, .book-title, .player-chapter-title')
         .evaluateAll((elements, expected) => elements.every(element =>
           getComputedStyle(element).fontFamily.includes(expected)), family)).toBe(true)
       await expect.poll(() => page.locator('foliate-view').evaluate(view => {
