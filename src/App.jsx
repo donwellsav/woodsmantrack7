@@ -1255,7 +1255,10 @@ export default function App() {
         <button className="icon-btn topbar-chapters" onClick={() => { setSidebarOpen(!sidebarOpen || showSettings); setShowSettings(false) }} aria-label={sidebarOpen && !showSettings ? 'Hide chapters' : 'Show chapters'} aria-pressed={sidebarOpen && !showSettings} title="Chapters">
           <IconMenu />
         </button>
-        <h1 className="book-title">{manifest.title}</h1>
+        <h1 className="book-title">
+          <span className="book-name">Woodsman: Track Seven</span>
+          <span className="book-byline">by Don Wells</span>
+        </h1>
         {chapter?.title && <span className="mobile-chapter-title">{chapter.title}</span>}
         <span className="spacer" />
       </header>

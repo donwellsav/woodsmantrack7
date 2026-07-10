@@ -72,6 +72,18 @@ async function openSettings(page) {
 }
 
 test.describe('reader lifecycle', () => {
+  test('top bar splits the title and author across two rows', async ({ page }) => {
+    await page.goto('/')
+
+    const heading = page.getByRole('heading', { level: 1 })
+    const title = heading.locator('.book-name')
+    const byline = heading.locator('.book-byline')
+    await expect(title).toHaveText('Woodsman: Track Seven')
+    await expect(byline).toHaveText('by Don Wells')
+    const [titleBox, bylineBox] = await Promise.all([title.boundingBox(), byline.boundingBox()])
+    expect(bylineBox.y).toBeGreaterThan(titleBox.y)
+  })
+
   test('selecting The Door keeps its real text and player controls visible', async ({ page }) => {
     let releaseEpub
     const epubGate = new Promise(resolve => { releaseEpub = resolve })

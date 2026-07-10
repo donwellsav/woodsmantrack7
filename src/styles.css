@@ -105,13 +105,15 @@ body {
   color: var(--bar-fg);
 }
 .book-title {
+  display: flex; flex-direction: column; align-items: flex-start;
   font-size: 0.95rem; font-weight: 600; letter-spacing: 0.2px;
   color: var(--accent);
   text-shadow: 0 0 8px var(--glow);
   font-family: "Iowan Old Style", "Palatino Linotype", Palatino, Georgia, serif;
-  white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
   flex-shrink: 1; min-width: 0;
 }
+.book-name, .book-byline { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; max-width: 100%; }
+.book-byline { font-size: 0.78rem; font-weight: 400; color: var(--bar-fg-dim); text-shadow: none; }
 .mobile-chapter-title {
   display: none;
   font-size: 0.85rem; color: var(--bar-fg-dim);
