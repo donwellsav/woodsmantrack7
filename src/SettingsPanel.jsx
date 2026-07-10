@@ -42,7 +42,7 @@ export default function SettingsPanel({ theme, setTheme, prefs, setPrefs }) {
                 title={f.note}
               >
                 <span className="font-sample" style={{ fontFamily: f.css }}>Aa</span>
-                <span className="font-name" style={{ fontFamily: f.css }}>{f.label}</span>
+                <span className="font-name">{f.label}</span>
                 <span className="font-note">{f.note}</span>
               </button>
             ))}

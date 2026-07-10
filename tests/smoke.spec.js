@@ -200,6 +200,21 @@ test.describe('preferences', () => {
     expect(spacing.y).toBe(size.y)
   })
 
+  test('selected font applies to the app chrome and reader', async ({ page }) => {
+    await page.goto('/')
+    await expect.poll(() => readerIsReady(page)).toBe(true)
+    await openSettings(page)
+    await page.getByRole('button', { name: /Lexend/ }).click()
+
+    const families = await page.locator('.app, .book-title, .player-chapter-title, .font-name')
+      .evaluateAll(elements => elements.map(element => getComputedStyle(element).fontFamily))
+    for (const family of families) expect(family).toContain('Lexend')
+    await expect.poll(() => page.locator('foliate-view').evaluate(view => {
+      const doc = view.renderer.getContents()[0].doc
+      return doc.defaultView.getComputedStyle(doc.body).fontFamily
+    })).toContain('Lexend')
+  })
+
   test('Page is removed and Chapters and Settings swap locations', async ({ page }) => {
     await page.goto('/')
 
