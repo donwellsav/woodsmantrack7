@@ -63,8 +63,9 @@ npm run preview  # serve the production build
   Loading it via a Vite `import()` from `public/` is blocked by Vite.
 - **`<foliate-view>` uses a callback ref**, not `useRef`, because React attaches
   the ref before the custom element is upgraded, and the open flow must run
-  after the element exists. A `__openStarted` guard prevents double-open under
-  StrictMode.
+  after the element exists. Each mount gets an attempt token so stale async
+  completions are ignored; cleanup and Retry close the old renderer before a
+  fresh element opens.
 - **Chapter navigation uses EPUB section indices, not CFIs or hrefs.** Pandoc
   EPUB section hrefs resolve to `null` inside foliate, and CFIs (`epubcfi(/6/8)`)
   throw inside foliate's `partsToNode` for this EPUB (the section-level CFI is
