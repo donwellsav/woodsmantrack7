@@ -82,8 +82,12 @@ test.describe('reader lifecycle', () => {
     await expect(byline).toHaveText('by Don Wells')
     const [titleBox, bylineBox] = await Promise.all([title.boundingBox(), byline.boundingBox()])
     expect(bylineBox.y).toBeGreaterThan(titleBox.y)
+    await expect(page.locator('header.topbar')).toHaveCSS('height', '52px')
+    await expect(title).toHaveCSS('font-size', '16px')
+    await expect(byline).toHaveCSS('font-size', '12.16px')
 
     await page.setViewportSize({ width: 390, height: 844 })
+    await expect(page.locator('header.topbar')).toHaveCSS('height', '52px')
     await expect(page.locator('header.topbar .mobile-chapter-title')).toHaveCount(0)
   })
 
@@ -196,6 +200,44 @@ test.describe('preferences', () => {
     expect(spacing.y).toBe(size.y)
   })
 
+  test('selected font applies to the app chrome and reader', async ({ page }) => {
+    await page.goto('/')
+    await expect.poll(() => readerIsReady(page)).toBe(true)
+    await openSettings(page)
+    const settings = page.getByRole('region', { name: 'Reading settings' })
+    for (const family of [
+      'Literata', 'Lexend', 'Atkinson Hyperlegible',
+      'OpenDyslexic', 'Merriweather', 'Noto Serif',
+    ]) {
+      await expect.poll(() => page.evaluate(async name =>
+        (await document.fonts.load(`16px "${name}"`)).length, family)).toBeGreaterThan(0)
+    }
+
+    const selections = [
+      ['Literata', 'Literata'],
+      ['Lexend', 'Lexend'],
+      ['Atkinson Hyperlegible', 'Atkinson Hyperlegible'],
+      ['OpenDyslexic', 'OpenDyslexic'],
+      ['Merriweather', 'Merriweather'],
+      ['Noto Serif', 'Noto Serif'],
+    ]
+    const pickerFamilies = await settings.locator('.font-item').evaluateAll(buttons =>
+      buttons.map(button => getComputedStyle(button).fontFamily))
+    for (let i = 0; i < selections.length; i += 1) {
+      expect(pickerFamilies[i]).toContain(selections[i][1])
+    }
+    for (const [label, family] of selections) {
+      await settings.locator('.font-name').filter({ hasText: new RegExp(`^${label}$`) }).locator('..').click()
+      await expect.poll(() => page.locator('.app, .book-title, .player-chapter-title')
+        .evaluateAll((elements, expected) => elements.every(element =>
+          getComputedStyle(element).fontFamily.includes(expected)), family)).toBe(true)
+      await expect.poll(() => page.locator('foliate-view').evaluate(view => {
+        const doc = view.renderer.getContents()[0].doc
+        return doc.defaultView.getComputedStyle(doc.body).fontFamily
+      })).toContain(family)
+    }
+  })
+
   test('Page is removed and Chapters and Settings swap locations', async ({ page }) => {
     await page.goto('/')
 
@@ -231,6 +273,17 @@ test.describe('navigation accessibility', () => {
     const door = drawer.locator('button.chapter-item').filter({ hasText: 'The Door' })
     await door.evaluate(button => button.focus())
     expect(await drawer.evaluate(aside => aside.contains(document.activeElement))).toBe(false)
+  })
+})
+
+test.describe('visual polish', () => {
+  test('chrome gets a quiet-print finish while the reader stays clean', async ({ page }) => {
+    await page.goto('/')
+    for (const selector of ['.topbar', '.sidebar', '.player']) {
+      expect(await page.locator(selector).evaluate(element =>
+        getComputedStyle(element).backgroundImage)).toContain('url(')
+    }
+    await expect(page.locator('.reader')).toHaveCSS('background-image', 'none')
   })
 })
 
@@ -342,6 +395,8 @@ test.describe('playback controls', () => {
 
     await page.locator('audio').evaluate(audio => { audio.currentTime = 30 })
     await expect.poll(() => page.locator('audio').evaluate(audio => audio.currentTime)).toBe(30)
+    await expect.poll(() => page.locator('.seek-desktop .seek').evaluate(slider =>
+      parseFloat(getComputedStyle(slider).getPropertyValue('--seek-progress')))).toBeGreaterThan(0)
     await back.click()
     await expect.poll(() => page.locator('audio').evaluate(audio => audio.currentTime)).toBe(15)
     await forward.click()
@@ -384,8 +439,8 @@ test.describe('playback controls', () => {
     const [toggleBox, playBox, collapsedFooter] = await Promise.all([
       seekToggle.boundingBox(), play.boundingBox(), footer.boundingBox(),
     ])
-    expect(toggleBox.height).toBe(36)
-    expect(await seekToggle.evaluate(button => parseFloat(getComputedStyle(button).fontSize))).toBeGreaterThanOrEqual(13)
+    expect(toggleBox.height).toBe(28)
+    expect(await seekToggle.evaluate(button => parseFloat(getComputedStyle(button).fontSize))).toBeGreaterThanOrEqual(15)
     expect(toggleBox.y).toBeLessThan(playBox.y)
     await seekToggle.click()
     await expect(seekToggle).toBeHidden()
@@ -406,5 +461,27 @@ test.describe('playback controls', () => {
     await expect(page.locator('.seek-toggle-time')).toBeVisible()
     await expect.poll(() => page.evaluate(() =>
       document.documentElement.scrollWidth <= window.innerWidth)).toBe(true)
+  })
+
+  test('seek slider provides a precise touch target and commits the final drag position', async ({ page }) => {
+    await page.goto('/')
+    await expect.poll(() => page.locator('audio').evaluate(audio => audio.readyState)).toBeGreaterThanOrEqual(1)
+
+    const desktopSeek = page.locator('.seek-desktop .seek')
+    await expect(desktopSeek).toHaveAttribute('step', '0.1')
+    await expect(desktopSeek).toHaveAttribute('aria-valuetext', '0:00 of 1:00')
+    expect((await desktopSeek.boundingBox()).height).toBe(44)
+
+    await desktopSeek.evaluate(slider => {
+      slider.dispatchEvent(new PointerEvent('pointerdown', { bubbles: true, pointerId: 1 }))
+      slider.value = '17.3'
+      slider.dispatchEvent(new Event('input', { bubbles: true }))
+      slider.dispatchEvent(new PointerEvent('pointerup', { bubbles: true, pointerId: 1 }))
+    })
+    await expect.poll(() => page.locator('audio').evaluate(audio => audio.currentTime)).toBeCloseTo(17.3, 1)
+
+    await page.setViewportSize({ width: 375, height: 667 })
+    await page.getByRole('button', { name: 'Open seek slider' }).click()
+    expect((await page.locator('.seek-accordion .seek').boundingBox()).height).toBe(28)
   })
 })

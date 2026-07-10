@@ -40,7 +40,6 @@ async function waitForFoliateView() {
 }
 
 // Readable book typography + colors for each theme, injected into the EPUB iframe.
-const READER_FONT = '"Iowan Old Style", "Palatino Linotype", Palatino, "Hoefler Text", Constantia, Georgia, serif'
 const THEMES = {
   dark: {
     // Deeper background (#181820 vs old #21212C) so the highlight glow
@@ -59,21 +58,29 @@ const THEMES = {
 
 // @font-face rules embedded in the reader CSS so each EPUB iframe can load
 // the fonts from /fonts/* (same origin). These cover the three non-system
-// fonts exposed in settings; the others fall through to native stacks.
+// fonts exposed in settings.
 // Use absolute URLs so @font-face resolves inside foliate's blob iframe.
-const FONT_ORIGIN = typeof window !== 'undefined' ? window.location.origin : ''
+const FONT_BASE = typeof window !== 'undefined'
+  ? new URL(`${import.meta.env.BASE_URL}fonts/`, window.location.origin).href
+  : ''
 const FONT_FACES = `
+@font-face { font-family: 'Literata'; font-style: normal; font-weight: 400; font-display: swap;
+  src: url('${FONT_BASE}literata-400.woff2') format('woff2'); }
 @font-face { font-family: 'Lexend'; font-style: normal; font-weight: 400; font-display: swap;
-  src: url('${FONT_ORIGIN}/fonts/lexend-400.woff2') format('woff2'); }
+  src: url('${FONT_BASE}lexend-400.woff2') format('woff2'); }
 @font-face { font-family: 'Atkinson Hyperlegible'; font-style: normal; font-weight: 400; font-display: swap;
-  src: url('${FONT_ORIGIN}/fonts/atkinson-400.woff2') format('woff2'); }
+  src: url('${FONT_BASE}atkinson-400.woff2') format('woff2'); }
 @font-face { font-family: 'OpenDyslexic'; font-style: normal; font-weight: 400; font-display: swap;
-  src: url('${FONT_ORIGIN}/fonts/opendyslexic-400.woff2') format('woff2'); }
+  src: url('${FONT_BASE}opendyslexic-400.woff2') format('woff2'); }
+@font-face { font-family: 'Merriweather'; font-style: normal; font-weight: 400; font-display: swap;
+  src: url('${FONT_BASE}merriweather-400.woff2') format('woff2'); }
+@font-face { font-family: 'Noto Serif'; font-style: normal; font-weight: 400; font-display: swap;
+  src: url('${FONT_BASE}noto-serif-400.woff2') format('woff2'); }
 `
 
 function readerCss(theme, prefs) {
   const t = THEMES[theme] || THEMES.dark
-  const font = FONTS[prefs?.font] || FONTS.iowan
+  const font = FONTS[prefs?.font] || FONTS.noto
   const size = prefs?.size ?? 19
   const lh = prefs?.lineHeight ?? 1.7
   return FONT_FACES + `
@@ -1206,21 +1213,34 @@ export default function App() {
   const continueSeconds = progress.chapters[continueIndex]?.seconds
     ?? (progress.currentIndex === continueIndex ? progress.currentTime : 0)
   const percentage = bookPercentage(progress, manifest.chapters)
+  const seekProgress = duration > 0 ? Math.min(100, Math.max(0, currentTime / duration * 100)) : 0
+
+  const commitSeek = (event) => {
+    const t = parseFloat(event.currentTarget.value)
+    isScrubbingRef.current = false
+    try {
+      if (event.currentTarget.hasPointerCapture(event.pointerId)) {
+        event.currentTarget.releasePointerCapture(event.pointerId)
+      }
+    } catch {}
+    setCurrentTime(t)
+    if (audioRef.current) audioRef.current.currentTime = t
+    lastWordIdxRef.current = -1
+    onTimeUpdate()
+  }
 
   const seekSlider = (
     <input
-      className="seek"
-      type="range" min={0} max={duration || 0} value={currentTime}
+      className="seek" type="range" min={0} max={duration || 0} step={0.1} value={currentTime}
+      style={{ '--seek-progress': `${seekProgress}%` }}
       aria-label="Seek audio position"
-      onPointerDown={() => { isScrubbingRef.current = true }}
-      onPointerUp={() => {
-        // PERF-9: only commit the actual audio.currentTime at pointer-up so
-        // dragging the slider doesn't queue dozens of redundant seeks.
-        isScrubbingRef.current = false
-        if (audioRef.current) audioRef.current.currentTime = currentTime
-        lastWordIdxRef.current = -1
-        onTimeUpdate()
+      aria-valuetext={`${fmt(currentTime)} of ${fmt(duration)}`}
+      onPointerDown={(event) => {
+        isScrubbingRef.current = true
+        try { event.currentTarget.setPointerCapture(event.pointerId) } catch {}
       }}
+      onPointerUp={commitSeek}
+      onPointerCancel={commitSeek}
       onChange={(e) => {
         const t = parseFloat(e.target.value)
         // While dragging, just update state for the slider thumb; the audio
@@ -1237,7 +1257,8 @@ export default function App() {
   )
 
   return (
-    <div className="app">
+    <div className="app" style={{ '--app-font': FONTS[prefs.font].css }}>
+      <style>{FONT_FACES}</style>
       {/* A11Y-23: visually-hidden aria-live region so screen readers announce
           chapter changes. The visible player-time div updates ~4x/sec and
           would spam AT if it were the live region. */}
