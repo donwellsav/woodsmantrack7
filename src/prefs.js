@@ -39,13 +39,8 @@ export const FONTS = {
 
 export const FLOW_OPTS = [
   { id: 'scrolled', label: 'Scroll', note: 'Continuous, smooth' },
-  { id: 'paginated', label: 'Page', note: 'One page at a time' },
   { id: 'manual', label: 'Manual', note: 'No auto-scroll' },
 ]
-
-export function rendererFlow(flow) {
-  return flow === 'paginated' ? 'paginated' : 'scrolled'
-}
 
 // CQ-6: validate prefs from localStorage. Defaults are tuned for a comfortable
 // book-reading experience on both light and dark themes.

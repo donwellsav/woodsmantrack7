@@ -1,7 +1,7 @@
 import test from 'node:test'
 import assert from 'node:assert/strict'
 
-import { loadPrefs, rendererFlow } from '../src/prefs.js'
+import { loadPrefs } from '../src/prefs.js'
 
 function store(prefs) {
   globalThis.localStorage = {
@@ -20,9 +20,10 @@ test('loadPrefs preserves persisted Manual flow', () => {
   assert.equal(loadPrefs().flow, 'manual')
 })
 
-test('rendererFlow translates Manual to Foliate scroll mode', () => {
-  assert.equal(rendererFlow('manual'), 'scrolled')
-  assert.equal(rendererFlow('paginated'), 'paginated')
+test('loadPrefs retires persisted Page flow to Scroll', () => {
+  store({ flow: 'paginated' })
+
+  assert.equal(loadPrefs().flow, 'scrolled')
 })
 
 test('loadPrefs accepts playback rates from 0.75x through 2x', () => {

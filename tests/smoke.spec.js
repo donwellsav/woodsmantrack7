@@ -72,6 +72,21 @@ async function openSettings(page) {
 }
 
 test.describe('reader lifecycle', () => {
+  test('top bar splits the title and author across two rows', async ({ page }) => {
+    await page.goto('/')
+
+    const heading = page.getByRole('heading', { level: 1 })
+    const title = heading.locator('.book-name')
+    const byline = heading.locator('.book-byline')
+    await expect(title).toHaveText('Woodsman: Track Seven')
+    await expect(byline).toHaveText('by Don Wells')
+    const [titleBox, bylineBox] = await Promise.all([title.boundingBox(), byline.boundingBox()])
+    expect(bylineBox.y).toBeGreaterThan(titleBox.y)
+
+    await page.setViewportSize({ width: 390, height: 844 })
+    await expect(page.locator('header.topbar .mobile-chapter-title')).toHaveCount(0)
+  })
+
   test('selecting The Door keeps its real text and player controls visible', async ({ page }) => {
     let releaseEpub
     const epubGate = new Promise(resolve => { releaseEpub = resolve })
@@ -89,6 +104,14 @@ test.describe('reader lifecycle', () => {
     await page.getByRole('button', { name: /^The Door/ }).click()
 
     await expect.poll(() => renderedReaderText(page)).toContain(FIRST_CHAPTER_TEXT)
+    const readerWidths = await page.locator('foliate-view').evaluate(view => {
+      const doc = view.renderer.getContents()[0].doc
+      return {
+        body: doc.body.getBoundingClientRect().width,
+        viewport: doc.documentElement.clientWidth,
+      }
+    })
+    expect(readerWidths.body / readerWidths.viewport).toBeGreaterThan(0.9)
     await expect(page.getByRole('button', { name: 'Previous chapter' })).toBeVisible()
     await expect(page.getByRole('button', { name: 'Play' })).toBeVisible()
     await expect(page.getByRole('button', { name: 'Next chapter' })).toBeVisible()
@@ -154,6 +177,44 @@ test.describe('preferences', () => {
     await expect(settings.getByText(/offline/i)).toHaveCount(0)
     await expect(settings.getByRole('button', { name: /download.*audio/i })).toHaveCount(0)
   })
+
+  test('settings use grouped, uniform controls', async ({ page }) => {
+    await page.goto('/')
+    await openSettings(page)
+
+    const settings = page.getByRole('region', { name: 'Reading settings' })
+    await expect(settings.getByRole('region', { name: 'Reading', exact: true })).toBeVisible()
+    await expect(settings.getByRole('region', { name: 'Playback', exact: true })).toBeVisible()
+    await expect(settings.getByRole('heading', { name: /^(Reading|Playback)$/ })).toHaveCount(0)
+    const heights = await settings.locator('.option-btn').evaluateAll(buttons =>
+      [...new Set(buttons.map(button => button.getBoundingClientRect().height))])
+    expect(heights).toEqual([44])
+    const [size, spacing] = await Promise.all([
+      settings.getByText('Size', { exact: true }).locator('..').boundingBox(),
+      settings.getByText('Spacing', { exact: true }).locator('..').boundingBox(),
+    ])
+    expect(spacing.y).toBe(size.y)
+  })
+
+  test('Page is removed and Chapters and Settings swap locations', async ({ page }) => {
+    await page.goto('/')
+
+    const topbar = page.locator('header.topbar')
+    const playerChapter = page.locator('.player-chapter')
+    await expect(topbar.getByRole('button', { name: /chapters/i })).toBeVisible()
+    await expect(topbar.getByRole('button', { name: 'Settings' })).toHaveCount(0)
+    await expect(playerChapter.getByRole('button', { name: 'Settings' })).toBeVisible()
+    await expect(playerChapter.getByRole('button', { name: /chapters/i })).toHaveCount(0)
+
+    await playerChapter.getByRole('button', { name: 'Settings' }).click()
+    const settings = page.getByRole('region', { name: 'Reading settings' })
+    await expect(settings).toBeVisible()
+    await expect(settings.getByRole('button', { name: 'Page' })).toHaveCount(0)
+
+    await topbar.getByRole('button', { name: /chapters/i }).click()
+    await expect(settings).toHaveCount(0)
+    await expect(page.getByRole('heading', { name: 'Chapters' })).toBeVisible()
+  })
 })
 
 test.describe('navigation accessibility', () => {
@@ -170,71 +231,6 @@ test.describe('navigation accessibility', () => {
     const door = drawer.locator('button.chapter-item').filter({ hasText: 'The Door' })
     await door.evaluate(button => button.focus())
     expect(await drawer.evaluate(aside => aside.contains(document.activeElement))).toBe(false)
-  })
-})
-
-test.describe('paginated reading', () => {
-  test('Page mode advances when audio crosses the current page boundary', async ({ page }) => {
-    await routeGeneratedAudio(page, 1200)
-    await page.goto('/')
-    await expect.poll(() => readerIsReady(page)).toBe(true)
-    await page.getByRole('button', { name: /^The Door/ }).click()
-    await expect.poll(() => renderedReaderText(page)).toContain(FIRST_CHAPTER_TEXT)
-    await openSettings(page)
-    await page.getByRole('button', { name: 'Manual' }).click()
-    await expect.poll(() => rendererFlow(page)).toBe('scrolled')
-
-    const { midChapterTime, lastWordEnd } = await page.evaluate(async () => {
-      const { words } = await fetch('/timings/ch002.json').then(response => response.json())
-      return {
-        midChapterTime: words[Math.floor(words.length / 2)].end,
-        lastWordEnd: words.at(-1).end,
-      }
-    })
-    expect(midChapterTime).toBeLessThan(lastWordEnd)
-    await expect.poll(() => page.locator('audio').evaluate(audio => audio.duration))
-      .toBeGreaterThan(midChapterTime)
-
-    await page.locator('foliate-view').evaluate(view => {
-      for (const { doc } of view.renderer?.getContents?.() ?? []) {
-        doc?.defaultView?.CSS?.highlights?.delete('sentence-hl')
-      }
-    })
-    await expect.poll(() => page.locator('audio').evaluate(async (audio, target) => {
-      audio.currentTime = target
-      audio.dispatchEvent(new Event('timeupdate'))
-      await new Promise(resolve => requestAnimationFrame(() => requestAnimationFrame(resolve)))
-      const view = audio.ownerDocument.querySelector('foliate-view')
-      return (view?.renderer?.getContents?.() ?? []).some(({ doc }) =>
-        doc?.defaultView?.CSS?.highlights?.has('sentence-hl'))
-    }, midChapterTime)).toBe(true)
-
-    await page.getByRole('button', { name: 'Page' }).click()
-    await expect.poll(() => rendererFlow(page)).toBe('paginated')
-
-    await expect.poll(() => page.locator('foliate-view').evaluate(view =>
-      Boolean(view.lastLocation?.range))).toBe(true)
-    expect(await page.locator('foliate-view').evaluate(view =>
-      typeof view.renderer?.next)).toBe('function')
-
-    await page.locator('foliate-view').evaluate(view => {
-      const renderer = view.renderer
-      const next = renderer.next
-      window.__pageTurnCalls = 0
-      renderer.next = async function (...args) {
-        const result = await next.apply(this, args)
-        window.__pageTurnCalls += 1
-        return result
-      }
-    })
-
-    await expect.poll(async () => {
-      return page.locator('audio').evaluate((audio, target) => {
-        audio.currentTime = target
-        audio.dispatchEvent(new Event('timeupdate'))
-        return window.__pageTurnCalls
-      }, midChapterTime)
-    }).toBeGreaterThan(0)
   })
 })
 
@@ -337,7 +333,7 @@ test.describe('playback controls', () => {
     const previous = page.getByRole('button', { name: 'Previous chapter' })
     const play = page.getByRole('button', { name: 'Play' })
     const next = page.getByRole('button', { name: 'Next chapter' })
-    const controls = [previous, back, play, forward, next]
+    const footer = page.locator('footer.player')
     await expect(back).toBeVisible()
     await expect(forward).toBeVisible()
     await expect(previous).toBeVisible()
@@ -351,20 +347,63 @@ test.describe('playback controls', () => {
     await forward.click()
     await expect.poll(() => page.locator('audio').evaluate(audio => audio.currentTime)).toBe(30)
 
-    await page.setViewportSize({ width: 320, height: 640 })
-    for (const control of controls) await expect(control).toBeVisible()
-    const boxes = await Promise.all(controls.map(control => control.boundingBox()))
-    const viewport = page.viewportSize()
-    for (const box of boxes) {
-      expect(box).not.toBeNull()
-      expect(box.x).toBeGreaterThanOrEqual(0)
-      expect(box.y).toBeGreaterThanOrEqual(0)
-      expect(box.x + box.width).toBeLessThanOrEqual(viewport.width)
-      expect(box.y + box.height).toBeLessThanOrEqual(viewport.height)
-    }
-    for (let i = 1; i < boxes.length; i += 1) {
-      expect(boxes[i - 1].x + boxes[i - 1].width).toBeLessThanOrEqual(boxes[i].x)
-    }
+    await page.setViewportSize({ width: 1024, height: 768 })
+    const chaptersToggle = page.locator('header.topbar').getByRole('button', { name: /chapters/i })
+    if (await chaptersToggle.getAttribute('aria-pressed') !== 'true') await chaptersToggle.click()
+    await page.getByRole('button', { name: /^August in Harmony Park/ }).click()
+    for (const control of [previous, back, play, forward, next]) await expect(control).toBeVisible()
+    await expect(page.locator('.player-time')).toBeVisible()
+    await expect(page.locator('.seek-desktop')).toBeVisible()
+    const titleFits = await page.locator('.player-chapter-title').evaluate(title =>
+      title.scrollWidth <= title.clientWidth)
+    expect(titleFits).toBe(true)
+
+    await page.setViewportSize({ width: 800, height: 700 })
+    for (const control of [previous, back, play, forward, next]) await expect(control).toBeVisible()
+    await expect(page.locator('.player-time')).toBeVisible()
+    await expect(page.locator('.seek-desktop')).toBeVisible()
+
+    await page.setViewportSize({ width: 375, height: 667 })
+    await expect(page.getByRole('button', { name: 'Settings' })).toBeVisible()
+    await expect(footer).toHaveAttribute('data-control-priority', '2')
+    await expect(previous).toBeHidden()
+    await expect(next).toBeHidden()
+    await expect(back).toBeHidden()
+    await expect(forward).toBeHidden()
+    expect(await page.locator('.player-chapter-title').evaluate(title =>
+      title.scrollWidth <= title.clientWidth)).toBe(true)
+    await expect(page.locator('.player-time')).toBeHidden()
+    await expect(page.locator('.seek-desktop')).toBeHidden()
+    const seekToggle = page.getByRole('button', { name: 'Open seek slider' })
+
+    await page.getByRole('button', { name: 'Show chapters' }).click()
+    await page.getByRole('button', { name: /^The Door/ }).click()
+    await expect(footer).toHaveAttribute('data-control-priority', '0')
+    for (const control of [previous, back, play, forward, next]) await expect(control).toBeVisible()
+
+    const [toggleBox, playBox, collapsedFooter] = await Promise.all([
+      seekToggle.boundingBox(), play.boundingBox(), footer.boundingBox(),
+    ])
+    expect(toggleBox.height).toBe(36)
+    expect(await seekToggle.evaluate(button => parseFloat(getComputedStyle(button).fontSize))).toBeGreaterThanOrEqual(13)
+    expect(toggleBox.y).toBeLessThan(playBox.y)
+    await seekToggle.click()
+    await expect(seekToggle).toBeHidden()
+    await expect(page.getByRole('button', { name: 'Collapse seek slider' })).toBeVisible()
+    const expandedFooter = await footer.boundingBox()
+    expect(Math.abs(expandedFooter.height - collapsedFooter.height)).toBeLessThan(1)
+
+    await page.getByRole('button', { name: 'Collapse seek slider' }).click()
+    await page.setViewportSize({ width: 280, height: 640 })
+    await expect(footer).toHaveAttribute('data-control-priority', '1')
+    await expect(page.locator('.player-chapter-title')).toBeVisible()
+    await expect(previous).toBeHidden()
+    await expect(next).toBeHidden()
+    await expect(back).toBeVisible()
+    await expect(forward).toBeVisible()
+    await expect(page.getByRole('button', { name: 'Settings' })).toBeVisible()
+    await expect(play).toBeVisible()
+    await expect(page.locator('.seek-toggle-time')).toBeVisible()
     await expect.poll(() => page.evaluate(() =>
       document.documentElement.scrollWidth <= window.innerWidth)).toBe(true)
   })

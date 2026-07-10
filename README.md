@@ -5,7 +5,7 @@ highlighting each word in the reader as the narration reaches it.
 
 ## What it does
 
-- **EPUB reader** (foliate-js) renders the book text, paginated per chapter.
+- **EPUB reader** (foliate-js) renders the book text.
 - **Audio player** streams the per-chapter MP3s with play/pause, seek, prev/next.
 - **Chapter sync** — selecting a chapter jumps both the reader and the audio.
 - **Word-level sync** — as the narration plays, the currently-spoken word is
