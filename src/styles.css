@@ -388,12 +388,17 @@ body {
     z-index: 9;
   }
   /* UX-03: stack the player on mobile with seek above the chapter/controls row. */
-  .player { flex-direction: column; gap: 4px; padding-top: 6px; padding-bottom: calc(6px + env(safe-area-inset-bottom)); min-height: auto; }
-  .player-top { display: flex; width: 100%; align-items: center; gap: 10px; }
-  .player-controls { gap: 2px; }
-  .player-chapter { flex: 1; width: auto; min-width: 0; }
+  .player {
+    flex-direction: column; gap: 4px; padding-top: 6px;
+    padding-bottom: calc(6px + env(safe-area-inset-bottom));
+    padding-left: calc(8px + env(safe-area-inset-left));
+    padding-right: calc(8px + env(safe-area-inset-right));
+    min-height: auto;
+  }
+  .player-top { display: flex; flex-wrap: wrap; width: 100%; align-items: center; gap: 4px 6px; }
+  .player-controls { gap: 0; margin-left: auto; }
+  .player-chapter { flex: 1 0 auto; width: auto; min-width: max-content; max-width: 100%; }
   .player-chapter-title { flex: 1; font-size: 1rem; }
-  .chapter-skip { display: none; }
   .player-time { display: none; }
   .seek-desktop { display: none; }
   .seek-toggle {
