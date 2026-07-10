@@ -178,6 +178,23 @@ test.describe('preferences', () => {
     await expect(settings.getByRole('button', { name: /download.*audio/i })).toHaveCount(0)
   })
 
+  test('settings use grouped, uniform controls', async ({ page }) => {
+    await page.goto('/')
+    await openSettings(page)
+
+    const settings = page.getByRole('region', { name: 'Reading settings' })
+    await expect(settings.getByRole('heading', { name: 'Reading', exact: true })).toBeVisible()
+    await expect(settings.getByRole('heading', { name: 'Playback' })).toBeVisible()
+    const heights = await settings.locator('.option-btn').evaluateAll(buttons =>
+      [...new Set(buttons.map(button => button.getBoundingClientRect().height))])
+    expect(heights).toEqual([44])
+    const [size, spacing] = await Promise.all([
+      settings.getByText('Size', { exact: true }).locator('..').boundingBox(),
+      settings.getByText('Spacing', { exact: true }).locator('..').boundingBox(),
+    ])
+    expect(spacing.y).toBe(size.y)
+  })
+
   test('Page is removed and Chapters and Settings swap locations', async ({ page }) => {
     await page.goto('/')
 

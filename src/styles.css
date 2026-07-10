@@ -293,21 +293,30 @@ body {
   color: var(--bar-fg); min-width: 36px; min-height: 36px;
 }
 .seek-accordion .seek { width: 100%; }
-.settings-panel { padding: 4px 14px 20px; color: var(--text); }
-.settings-group { margin-bottom: 14px; }
+.settings-panel { padding: 2px 14px 24px; color: var(--text); }
+.settings-section + .settings-section {
+  margin-top: 18px; padding-top: 16px; border-top: 1px solid var(--border);
+}
+.settings-section-title {
+  margin-bottom: 12px; color: var(--text); font-size: 0.82rem;
+  font-weight: 700; letter-spacing: 0.2px;
+}
+.settings-group { margin-bottom: 12px; }
 .settings-group:last-child { margin-bottom: 0; }
+.settings-pair { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 10px; margin-bottom: 12px; }
+.settings-pair .settings-group { min-width: 0; margin-bottom: 0; }
 .settings-label {
   display: block; font-size: 0.7rem; font-weight: 700;
   text-transform: uppercase; letter-spacing: 0.8px; color: var(--text-dim);
-  margin-bottom: 6px;
+  margin-bottom: 7px;
 }
 
 .option-row {
   display: flex; gap: 0; flex-wrap: wrap;
-  border: 1px solid var(--border);
+  border: 1px solid var(--border); background: var(--bg-elev2);
 }
 .option-btn {
-  flex: 1; min-width: 0; padding: 7px 8px; border: none;
+  flex: 1; min-width: 0; min-height: 44px; padding: 7px 8px; border: none;
   background: transparent; color: var(--text);
   cursor: pointer; font-size: 0.82rem; font-weight: 500;
   transition: background 0.15s ease, color 0.15s ease;
@@ -329,12 +338,13 @@ body {
 /* vertical font picker — one option per row */
 .font-list {
   display: flex; flex-direction: column; gap: 0;
-  border: 1px solid var(--border);
+  border: 1px solid var(--border); background: var(--bg-elev2);
 }
 .font-item {
-  display: flex; align-items: center; gap: 10px;
+  display: grid; grid-template-columns: 34px minmax(0, 1fr); align-items: center;
+  column-gap: 10px; min-height: 52px;
   width: 100%; text-align: left;
-  padding: 9px 12px; border: none; border-bottom: 1px solid var(--border);
+  padding: 7px 10px; border: none; border-bottom: 1px solid var(--border);
   background: transparent; color: var(--text);
   cursor: pointer; font-size: 0.85rem;
   transition: background 0.15s ease, color 0.15s ease;
@@ -346,16 +356,19 @@ body {
   box-shadow: inset 0 0 0 1px var(--accent), 0 0 6px -1px var(--accent);
 }
 .font-item .font-sample {
-  font-size: 1.3rem; line-height: 1; min-width: 1.5em; text-align: center;
+  grid-row: 1 / 3; font-size: 1.3rem; line-height: 1; text-align: center;
 }
-.font-item .font-name { flex: 1; font-weight: 600; }
+.font-item .font-name {
+  align-self: end; overflow: hidden; font-weight: 600;
+  text-overflow: ellipsis; white-space: nowrap;
+}
 .font-item .font-note {
-  font-size: 0.68rem; opacity: 0.7; font-family: inherit;
-  font-style: italic;
+  align-self: start; overflow: hidden; font-size: 0.68rem; opacity: 0.7;
+  font-family: inherit; text-overflow: ellipsis; white-space: nowrap;
 }
 .font-item.active .font-note { opacity: 0.85; }
 
-.size-row { display: flex; align-items: stretch; gap: 0; border: 1px solid var(--border); }
+.size-row { display: flex; align-items: stretch; gap: 0; border: 1px solid var(--border); background: var(--bg-elev2); }
 .size-btn {
   /* A11Y-09: was 36x~36; bump to 44x44 (WCAG 2.5.5 / Apple HIG minimum). */
   width: 44px; min-height: 44px; border: none;
@@ -364,9 +377,9 @@ body {
   cursor: pointer; display: flex; align-items: center; justify-content: center;
 }
 .size-btn:hover { background: var(--bar-bg); color: var(--bar-fg); }
-.size-btn + .size-value { border-left: 1px solid var(--border); }
+.size-btn + .size-value, .size-value + .size-btn { border-left: 1px solid var(--border); }
 .size-value {
-  flex: 1; display: flex; align-items: center; justify-content: center;
+  flex: 1; min-width: 0; display: flex; align-items: center; justify-content: center;
   font-size: 0.85rem; color: var(--text-dim); font-variant-numeric: tabular-nums;
 }
 
