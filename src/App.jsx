@@ -353,7 +353,6 @@ export default function App() {
     progressRef.current = next
     setProgress(next)
     try { localStorage.setItem(PROGRESS_KEY, JSON.stringify(next)) } catch {}
-    return next
   }
 
   // ---- reading-progress persistence (continued below after `chapter` decl) ----
