@@ -1338,27 +1338,35 @@ export default function App() {
         </main>
       </div>
 
-      {/* UX-03: mobile accordion seek panel. Opens above the player and spans the full width for easy scrubbing. */}
-      <div className={`seek-accordion ${seekExpanded ? 'open' : ''}`} id="seek-panel">
-        <div className="seek-accordion-inner">
-          <div className="seek-accordion-header">
-            <span className="seek-accordion-time">{fmt(currentTime)}</span>
-            <button
-              className="icon-btn seek-collapse"
-              onClick={() => setSeekExpanded(false)}
-              aria-label="Collapse seek slider"
-              aria-expanded={seekExpanded}
-              aria-controls="seek-panel"
-            >
-              <IconChevron direction="down" />
-            </button>
-            <span className="seek-accordion-time">{fmt(duration)}</span>
-          </div>
-          {seekSlider}
-        </div>
-      </div>
-
       <footer className="player">
+        <button
+          className="seek-toggle mobile-only"
+          onClick={() => setSeekExpanded(true)}
+          aria-expanded={seekExpanded}
+          aria-controls="seek-panel"
+          aria-label="Open seek slider"
+        >
+          <IconChevron direction="up" />
+          <span className="seek-toggle-time">{fmt(currentTime)} / {fmt(duration)}</span>
+        </button>
+        <div className={`seek-accordion ${seekExpanded ? 'open' : ''}`} id="seek-panel">
+          <div className="seek-accordion-inner">
+            <div className="seek-accordion-header">
+              <span className="seek-accordion-time">{fmt(currentTime)}</span>
+              <button
+                className="icon-btn seek-collapse"
+                onClick={() => setSeekExpanded(false)}
+                aria-label="Collapse seek slider"
+                aria-expanded={seekExpanded}
+                aria-controls="seek-panel"
+              >
+                <IconChevron direction="down" />
+              </button>
+              <span className="seek-accordion-time">{fmt(duration)}</span>
+            </div>
+            {seekSlider}
+          </div>
+        </div>
         <div className="player-top">
           <div className="player-chapter">
             <button className="icon-btn" onClick={() => { setSidebarOpen(!sidebarOpen || !showSettings); setShowSettings(true) }} aria-label="Settings" aria-expanded={showSettings && sidebarOpen} aria-controls="settings-panel" title="Settings"><IconSettings /></button>
@@ -1376,16 +1384,6 @@ export default function App() {
           </div>
         </div>
         <div className="seek-desktop">{seekSlider}</div>
-        <button
-          className="seek-toggle mobile-only"
-          onClick={() => setSeekExpanded(true)}
-          aria-expanded={seekExpanded}
-          aria-controls="seek-panel"
-          aria-label="Open seek slider"
-        >
-          <IconChevron direction="up" />
-          <span className="seek-toggle-time">{fmt(currentTime)} / {fmt(duration)}</span>
-        </button>
       </footer>
 
       <audio

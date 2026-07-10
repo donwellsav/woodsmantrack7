@@ -361,6 +361,17 @@ test.describe('playback controls', () => {
     for (let i = 1; i < boxes.length; i += 1) {
       expect(boxes[i - 1].x + boxes[i - 1].width).toBeLessThanOrEqual(boxes[i].x)
     }
+    const seekToggle = page.getByRole('button', { name: 'Open seek slider' })
+    const footer = page.locator('footer.player')
+    const [toggleBox, playBox, collapsedFooter] = await Promise.all([
+      seekToggle.boundingBox(), play.boundingBox(), footer.boundingBox(),
+    ])
+    expect(toggleBox.y).toBeLessThan(playBox.y)
+    await seekToggle.click()
+    await expect(seekToggle).toBeHidden()
+    await expect(page.getByRole('button', { name: 'Collapse seek slider' })).toBeVisible()
+    const expandedFooter = await footer.boundingBox()
+    expect(Math.abs(expandedFooter.height - collapsedFooter.height)).toBeLessThan(1)
     await expect.poll(() => page.evaluate(() =>
       document.documentElement.scrollWidth <= window.innerWidth)).toBe(true)
   })
