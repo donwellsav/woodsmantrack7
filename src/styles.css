@@ -94,6 +94,7 @@ body {
 .app {
   display: flex; flex-direction: column;
   height: 100vh; height: 100dvh;
+  font-family: var(--app-font);
 }
 
 /* topbar chapter navigation */
@@ -108,7 +109,7 @@ body {
   display: flex; flex-direction: column; align-items: flex-start;
   font-size: 1rem; line-height: 1.15; font-weight: 600; letter-spacing: 0.2px;
   color: var(--bar-fg);
-  font-family: "Iowan Old Style", "Palatino Linotype", Palatino, Georgia, serif;
+  font-family: inherit;
   flex-shrink: 1; min-width: 0;
 }
 .book-name, .book-byline { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; max-width: 100%; }
@@ -235,7 +236,7 @@ body {
 .player-chapter-title {
   flex: 1; min-width: 0; font-size: 0.88rem; font-weight: 600; color: var(--bar-fg);
   white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
-  font-family: "Iowan Old Style", "Palatino Linotype", Palatino, Georgia, serif;
+  font-family: inherit;
 }
 .player-time { flex: none; white-space: nowrap; font-size: 0.74rem; color: var(--bar-fg-dim); font-variant-numeric: tabular-nums; }
 .player-controls { display: flex; align-items: center; gap: 4px; }

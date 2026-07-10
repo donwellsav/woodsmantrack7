@@ -1237,7 +1237,7 @@ export default function App() {
   )
 
   return (
-    <div className="app">
+    <div className="app" style={{ '--app-font': FONTS[prefs.font].css }}>
       {/* A11Y-23: visually-hidden aria-live region so screen readers announce
           chapter changes. The visible player-time div updates ~4x/sec and
           would spam AT if it were the live region. */}
