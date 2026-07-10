@@ -366,6 +366,8 @@ test.describe('playback controls', () => {
     const [toggleBox, playBox, collapsedFooter] = await Promise.all([
       seekToggle.boundingBox(), play.boundingBox(), footer.boundingBox(),
     ])
+    expect(toggleBox.height).toBe(36)
+    expect(await seekToggle.evaluate(button => parseFloat(getComputedStyle(button).fontSize))).toBeGreaterThanOrEqual(13)
     expect(toggleBox.y).toBeLessThan(playBox.y)
     await seekToggle.click()
     await expect(seekToggle).toBeHidden()
