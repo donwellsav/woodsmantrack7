@@ -333,7 +333,6 @@ test.describe('playback controls', () => {
     const previous = page.getByRole('button', { name: 'Previous chapter' })
     const play = page.getByRole('button', { name: 'Play' })
     const next = page.getByRole('button', { name: 'Next chapter' })
-    const controls = [previous, back, play, forward, next]
     await expect(back).toBeVisible()
     await expect(forward).toBeVisible()
     await expect(previous).toBeVisible()
@@ -347,35 +346,27 @@ test.describe('playback controls', () => {
     await forward.click()
     await expect.poll(() => page.locator('audio').evaluate(audio => audio.currentTime)).toBe(30)
 
-    await page.setViewportSize({ width: 320, height: 640 })
-    for (const control of controls) await expect(control).toBeVisible()
-    const boxes = await Promise.all(controls.map(control => control.boundingBox()))
-    const viewport = page.viewportSize()
-    for (const box of boxes) {
-      expect(box).not.toBeNull()
-      expect(box.x).toBeGreaterThanOrEqual(0)
-      expect(box.y).toBeGreaterThanOrEqual(0)
-      expect(box.x + box.width).toBeLessThanOrEqual(viewport.width)
-      expect(box.y + box.height).toBeLessThanOrEqual(viewport.height)
-    }
-    for (let i = 1; i < boxes.length; i += 1) {
-      expect(boxes[i - 1].x + boxes[i - 1].width).toBeLessThanOrEqual(boxes[i].x)
-    }
-    const [longTitleBox, wrappedControlsBox] = await Promise.all([
-      page.locator('.player-chapter').boundingBox(), page.locator('.player-controls').boundingBox(),
-    ])
-    expect(wrappedControlsBox.y).toBeGreaterThan(longTitleBox.y)
-
-    await page.setViewportSize({ width: 375, height: 667 })
-    await page.getByRole('button', { name: 'Show chapters' }).click()
-    await page.getByRole('button', { name: /^The Door/ }).click()
-    const [shortTitleBox, inlineControlsBox] = await Promise.all([
-      page.locator('.player-chapter').boundingBox(), page.locator('.player-controls').boundingBox(),
-    ])
-    expect(inlineControlsBox.y).toBe(shortTitleBox.y)
+    await page.setViewportSize({ width: 1024, height: 768 })
+    const chaptersToggle = page.locator('header.topbar').getByRole('button', { name: /chapters/i })
+    if (await chaptersToggle.getAttribute('aria-pressed') !== 'true') await chaptersToggle.click()
+    await page.getByRole('button', { name: /^August in Harmony Park/ }).click()
+    await expect(previous).toBeHidden()
+    await expect(next).toBeHidden()
+    await expect(back).toBeVisible()
+    await expect(forward).toBeVisible()
     const titleFits = await page.locator('.player-chapter-title').evaluate(title =>
       title.scrollWidth <= title.clientWidth)
     expect(titleFits).toBe(true)
+
+    await page.setViewportSize({ width: 800, height: 700 })
+    await expect(back).toBeHidden()
+    await expect(forward).toBeHidden()
+    await expect(play).toBeVisible()
+
+    await page.setViewportSize({ width: 375, height: 667 })
+    await expect(page.getByRole('button', { name: 'Settings' })).toBeVisible()
+    expect(await page.locator('.player-chapter-title').evaluate(title =>
+      title.scrollWidth <= title.clientWidth)).toBe(true)
     const seekToggle = page.getByRole('button', { name: 'Open seek slider' })
     const footer = page.locator('footer.player')
     const [toggleBox, playBox, collapsedFooter] = await Promise.all([
