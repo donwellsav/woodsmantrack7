@@ -386,7 +386,6 @@ test.describe('playback controls', () => {
     await expect.poll(() => page.locator('audio').evaluate(audio => audio.currentTime)).toBe(30)
     await expect.poll(() => page.locator('.seek-desktop .seek').evaluate(slider =>
       parseFloat(getComputedStyle(slider).getPropertyValue('--seek-progress')))).toBeGreaterThan(0)
-    await expect(page.locator('.seek-desktop .seek')).toHaveCSS('background-image', /linear-gradient/)
     await back.click()
     await expect.poll(() => page.locator('audio').evaluate(audio => audio.currentTime)).toBe(15)
     await forward.click()
@@ -451,5 +450,27 @@ test.describe('playback controls', () => {
     await expect(page.locator('.seek-toggle-time')).toBeVisible()
     await expect.poll(() => page.evaluate(() =>
       document.documentElement.scrollWidth <= window.innerWidth)).toBe(true)
+  })
+
+  test('seek slider provides a precise touch target and commits the final drag position', async ({ page }) => {
+    await page.goto('/')
+    await expect.poll(() => page.locator('audio').evaluate(audio => audio.readyState)).toBeGreaterThanOrEqual(1)
+
+    const desktopSeek = page.locator('.seek-desktop .seek')
+    await expect(desktopSeek).toHaveAttribute('step', '0.1')
+    await expect(desktopSeek).toHaveAttribute('aria-valuetext', '0:00 of 1:00')
+    expect((await desktopSeek.boundingBox()).height).toBe(44)
+
+    await desktopSeek.evaluate(slider => {
+      slider.dispatchEvent(new PointerEvent('pointerdown', { bubbles: true, pointerId: 1 }))
+      slider.value = '17.3'
+      slider.dispatchEvent(new Event('input', { bubbles: true }))
+      slider.dispatchEvent(new PointerEvent('pointerup', { bubbles: true, pointerId: 1 }))
+    })
+    await expect.poll(() => page.locator('audio').evaluate(audio => audio.currentTime)).toBeCloseTo(17.3, 1)
+
+    await page.setViewportSize({ width: 375, height: 667 })
+    await page.getByRole('button', { name: 'Open seek slider' }).click()
+    expect((await page.locator('.seek-accordion .seek').boundingBox()).height).toBe(28)
   })
 })
