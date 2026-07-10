@@ -1374,13 +1374,13 @@ export default function App() {
             <div className="player-time">{fmt(currentTime)} / {fmt(duration)}</div>
           </div>
           <div className="player-controls">
-            <button className="icon-btn" onClick={prev} aria-label="Previous chapter"><IconPrev /></button>
+            <button className="icon-btn chapter-skip" onClick={prev} aria-label="Previous chapter"><IconPrev /></button>
             <button className="icon-btn seek-step" onClick={() => seekBy(-15)} aria-label="Back 15 seconds"><span aria-hidden="true">−15</span></button>
             <button className="play-btn" onClick={togglePlay} aria-label={isPlaying ? 'Pause' : 'Play'} aria-pressed={isPlaying}>
               {isPlaying ? <IconPause /> : <IconPlay />}
             </button>
             <button className="icon-btn seek-step" onClick={() => seekBy(15)} aria-label="Forward 15 seconds"><span aria-hidden="true">+15</span></button>
-            <button className="icon-btn" onClick={next} aria-label="Next chapter"><IconNext /></button>
+            <button className="icon-btn chapter-skip" onClick={next} aria-label="Next chapter"><IconNext /></button>
           </div>
         </div>
         <div className="seek-desktop">{seekSlider}</div>

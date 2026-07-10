@@ -333,7 +333,6 @@ test.describe('playback controls', () => {
     const previous = page.getByRole('button', { name: 'Previous chapter' })
     const play = page.getByRole('button', { name: 'Play' })
     const next = page.getByRole('button', { name: 'Next chapter' })
-    const controls = [previous, back, play, forward, next]
     await expect(back).toBeVisible()
     await expect(forward).toBeVisible()
     await expect(previous).toBeVisible()
@@ -348,8 +347,11 @@ test.describe('playback controls', () => {
     await expect.poll(() => page.locator('audio').evaluate(audio => audio.currentTime)).toBe(30)
 
     await page.setViewportSize({ width: 320, height: 640 })
-    for (const control of controls) await expect(control).toBeVisible()
-    const boxes = await Promise.all(controls.map(control => control.boundingBox()))
+    await expect(previous).toBeHidden()
+    await expect(next).toBeHidden()
+    const mobileControls = [back, play, forward]
+    for (const control of mobileControls) await expect(control).toBeVisible()
+    const boxes = await Promise.all(mobileControls.map(control => control.boundingBox()))
     const viewport = page.viewportSize()
     for (const box of boxes) {
       expect(box).not.toBeNull()
@@ -361,6 +363,10 @@ test.describe('playback controls', () => {
     for (let i = 1; i < boxes.length; i += 1) {
       expect(boxes[i - 1].x + boxes[i - 1].width).toBeLessThanOrEqual(boxes[i].x)
     }
+    await page.setViewportSize({ width: 375, height: 667 })
+    const titleFits = await page.locator('.player-chapter-title').evaluate(title =>
+      title.scrollWidth <= title.clientWidth)
+    expect(titleFits).toBe(true)
     const seekToggle = page.getByRole('button', { name: 'Open seek slider' })
     const footer = page.locator('footer.player')
     const [toggleBox, playBox, collapsedFooter] = await Promise.all([
