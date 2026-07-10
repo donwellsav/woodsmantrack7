@@ -306,6 +306,7 @@ export default function App() {
   useEffect(() => {
     prefsRef.current = prefs
     try { localStorage.setItem(PREFS_KEY, JSON.stringify(prefs)) } catch {}
+    if (audioRef.current) audioRef.current.playbackRate = prefs.playbackRate
     // switch the renderer's flow mode live; foliate re-renders the section
     const view = viewRef.current
     if (view?.renderer?.setAttribute) {
@@ -992,7 +993,12 @@ export default function App() {
       }
     }
   }
-  const onLoadedMeta = () => setDuration(audioRef.current?.duration || 0)
+  const onLoadedMeta = () => {
+    const audio = audioRef.current
+    if (!audio) return
+    audio.playbackRate = prefsRef.current.playbackRate
+    setDuration(audio.duration || 0)
+  }
   const advancingRef = useRef(false)
   const onEnded = () => {
     if (manifest && currentIndex < manifest.chapters.length - 1) {
@@ -1453,9 +1459,11 @@ export default function App() {
           </div>
           <div className="player-controls">
             <button className="icon-btn" onClick={prev} aria-label="Previous chapter"><IconPrev /></button>
+            <button className="icon-btn seek-step" onClick={() => seekBy(-15)} aria-label="Back 15 seconds"><span aria-hidden="true">−15</span></button>
             <button className="play-btn" onClick={togglePlay} aria-label={isPlaying ? 'Pause' : 'Play'} aria-pressed={isPlaying}>
               {isPlaying ? <IconPause /> : <IconPlay />}
             </button>
+            <button className="icon-btn seek-step" onClick={() => seekBy(15)} aria-label="Forward 15 seconds"><span aria-hidden="true">+15</span></button>
             <button className="icon-btn" onClick={next} aria-label="Next chapter"><IconNext /></button>
           </div>
         </div>

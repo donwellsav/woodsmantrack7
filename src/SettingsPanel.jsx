@@ -3,6 +3,8 @@
 // (replaces the chapter list when the gear is active) — no modal/overlay.
 import { FONTS, FLOW_OPTS } from './prefs.js'
 
+const PLAYBACK_RATES = [0.75, 1, 1.25, 1.5, 1.75, 2]
+
 export default function SettingsPanel({ theme, setTheme, prefs, setPrefs }) {
   const fontEntries = Object.entries(FONTS)
   const flowEntries = FLOW_OPTS
@@ -74,6 +76,20 @@ export default function SettingsPanel({ theme, setTheme, prefs, setPrefs }) {
               onClick={() => setPrefs(p => ({ ...p, flow: f.id }))}
               aria-pressed={prefs.flow === f.id}
             >{f.label}</button>
+          ))}
+        </div>
+      </div>
+
+      <div className="settings-group">
+        <span className="settings-label">Playback speed</span>
+        <div className="option-row playback-speed" role="group" aria-label="Playback speed">
+          {PLAYBACK_RATES.map(rate => (
+            <button
+              key={rate}
+              className={`option-btn ${prefs.playbackRate === rate ? 'active' : ''}`}
+              onClick={() => setPrefs(p => ({ ...p, playbackRate: rate }))}
+              aria-pressed={prefs.playbackRate === rate}
+            >{rate}×</button>
           ))}
         </div>
       </div>

@@ -2,6 +2,26 @@ import { expect, test } from '@playwright/test'
 
 const FIRST_CHAPTER_TEXT = 'The Landmark always looked the most honest after midnight.'
 
+function makeSilentWav(seconds = 60) {
+  const sampleRate = 8000
+  const dataSize = sampleRate * seconds
+  const wav = Buffer.alloc(44 + dataSize, 128)
+  wav.write('RIFF', 0)
+  wav.writeUInt32LE(36 + dataSize, 4)
+  wav.write('WAVE', 8)
+  wav.write('fmt ', 12)
+  wav.writeUInt32LE(16, 16)
+  wav.writeUInt16LE(1, 20)
+  wav.writeUInt16LE(1, 22)
+  wav.writeUInt32LE(sampleRate, 24)
+  wav.writeUInt32LE(sampleRate, 28)
+  wav.writeUInt16LE(1, 32)
+  wav.writeUInt16LE(8, 34)
+  wav.write('data', 36)
+  wav.writeUInt32LE(dataSize, 40)
+  return wav
+}
+
 async function renderedReaderText(page) {
   return page.locator('foliate-view').evaluate(view =>
     (view.renderer?.getContents?.() ?? [])
@@ -113,5 +133,82 @@ test.describe('preferences', () => {
     const settings = page.getByRole('region', { name: 'Reading settings' })
     await expect(settings.getByText(/offline/i)).toHaveCount(0)
     await expect(settings.getByRole('button', { name: /download.*audio/i })).toHaveCount(0)
+  })
+})
+
+test.describe('playback controls', () => {
+  test.beforeEach(async ({ page }) => {
+    const wav = makeSilentWav()
+    await page.route('http://localhost:4173/audio/**', route => {
+      const range = /bytes=(\d+)-(\d*)/.exec(route.request().headers().range || '')
+      const start = range ? Number(range[1]) : 0
+      const end = Math.min(range?.[2] ? Number(range[2]) : wav.length - 1, wav.length - 1)
+      const body = wav.subarray(start, end + 1)
+      return route.fulfill({
+        status: range ? 206 : 200,
+        contentType: 'audio/wav',
+        headers: {
+          'Accept-Ranges': 'bytes',
+          'Content-Length': String(body.length),
+          ...(range && { 'Content-Range': `bytes ${start}-${end}/${wav.length}` }),
+        },
+        body,
+      })
+    })
+  })
+
+  test('playback controls persist speed and apply it immediately and on metadata', async ({ page }) => {
+    await page.goto('/')
+    await openSettings(page)
+
+    const speed = page.getByRole('group', { name: 'Playback speed' })
+    await expect(speed.getByRole('button')).toHaveText([
+      '0.75×', '1×', '1.25×', '1.5×', '1.75×', '2×',
+    ])
+
+    const selectedRate = speed.getByRole('button', { name: '1.5×', exact: true })
+    await selectedRate.click()
+    await expect(selectedRate).toHaveAttribute('aria-pressed', 'true')
+    await expect.poll(() => page.evaluate(() =>
+      JSON.parse(localStorage.getItem('woodsman-prefs-v1')).playbackRate)).toBe(1.5)
+    await expect.poll(() => page.locator('audio').evaluate(audio => audio.playbackRate)).toBe(1.5)
+
+    await page.locator('audio').evaluate(audio => {
+      audio.playbackRate = 1
+      audio.dispatchEvent(new Event('loadedmetadata'))
+    })
+    await expect.poll(() => page.locator('audio').evaluate(audio => audio.playbackRate)).toBe(1.5)
+
+    await page.reload()
+    await openSettings(page)
+    await expect(page.getByRole('group', { name: 'Playback speed' })
+      .getByRole('button', { name: '1.5×', exact: true })).toHaveAttribute('aria-pressed', 'true')
+    await expect.poll(() => page.locator('audio').evaluate(audio => audio.playbackRate)).toBe(1.5)
+  })
+
+  test('playback controls seek by 15 seconds without overflowing mobile', async ({ page }) => {
+    await page.goto('/')
+    await expect.poll(() => page.locator('audio').evaluate(audio => audio.readyState)).toBeGreaterThanOrEqual(1)
+
+    const back = page.getByRole('button', { name: 'Back 15 seconds' })
+    const forward = page.getByRole('button', { name: 'Forward 15 seconds' })
+    await expect(back).toBeVisible()
+    await expect(forward).toBeVisible()
+    await expect(page.getByRole('button', { name: 'Previous chapter' })).toBeVisible()
+    await expect(page.getByRole('button', { name: 'Play' })).toBeVisible()
+    await expect(page.getByRole('button', { name: 'Next chapter' })).toBeVisible()
+
+    await page.locator('audio').evaluate(audio => { audio.currentTime = 30 })
+    await expect.poll(() => page.locator('audio').evaluate(audio => audio.currentTime)).toBe(30)
+    await back.click()
+    await expect.poll(() => page.locator('audio').evaluate(audio => audio.currentTime)).toBe(15)
+    await forward.click()
+    await expect.poll(() => page.locator('audio').evaluate(audio => audio.currentTime)).toBe(30)
+
+    await page.setViewportSize({ width: 320, height: 640 })
+    await expect(back).toBeVisible()
+    await expect(forward).toBeVisible()
+    await expect.poll(() => page.evaluate(() =>
+      document.documentElement.scrollWidth <= window.innerWidth)).toBe(true)
   })
 })
