@@ -902,23 +902,6 @@ export default function App() {
       const mid = (lo + hi) >> 1
       if (t.words[mid].start <= now) { idx = mid; lo = mid + 1 } else { hi = mid - 1 }
     }
-    // PERF-5: coalesce into a single rAF. Skip when the SENTENCE hasn't
-    // changed — the whole sentence highlights at once, so re-highlighting
-    // the same sentence is wasted work.
-    const sentIdx = wordToSentenceRef.current[idx] ?? idx
-    if (sentIdx === lastWordIdxRef.current) return
-    rafIdxRef.current = idx
-    if (rafHandleRef.current) return
-    rafHandleRef.current = requestAnimationFrame(() => {
-      rafHandleRef.current = 0
-      const target = rafIdxRef.current
-      rafIdxRef.current = -1
-      const targetSent = wordToSentenceRef.current[target] ?? target
-      if (targetSent !== lastWordIdxRef.current) {
-        lastWordIdxRef.current = targetSent
-        highlightWord(target)
-      }
-    })
     // Paginated mode: if audio has passed the end of the current page's
     // last visible word, flip to the next page. The page-turn latch
     // prevents re-entry until buildSectionTextMap resets it on the
@@ -936,6 +919,23 @@ export default function App() {
         if (r && typeof r.next === 'function') r.next().catch(() => {})
       }
     }
+    // PERF-5: coalesce into a single rAF. Skip when the SENTENCE hasn't
+    // changed — the whole sentence highlights at once, so re-highlighting
+    // the same sentence is wasted work.
+    const sentIdx = wordToSentenceRef.current[idx] ?? idx
+    if (sentIdx === lastWordIdxRef.current) return
+    rafIdxRef.current = idx
+    if (rafHandleRef.current) return
+    rafHandleRef.current = requestAnimationFrame(() => {
+      rafHandleRef.current = 0
+      const target = rafIdxRef.current
+      rafIdxRef.current = -1
+      const targetSent = wordToSentenceRef.current[target] ?? target
+      if (targetSent !== lastWordIdxRef.current) {
+        lastWordIdxRef.current = targetSent
+        highlightWord(target)
+      }
+    })
   }
   const onLoadedMeta = () => {
     const audio = audioRef.current

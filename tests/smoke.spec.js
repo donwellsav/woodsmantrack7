@@ -180,10 +180,9 @@ test.describe('paginated reading', () => {
     await expect.poll(() => readerIsReady(page)).toBe(true)
     await page.getByRole('button', { name: /^The Door/ }).click()
     await expect.poll(() => renderedReaderText(page)).toContain(FIRST_CHAPTER_TEXT)
-
     await openSettings(page)
-    await page.getByRole('button', { name: 'Page' }).click()
-    await expect.poll(() => rendererFlow(page)).toBe('paginated')
+    await page.getByRole('button', { name: 'Manual' }).click()
+    await expect.poll(() => rendererFlow(page)).toBe('scrolled')
 
     const { midChapterTime, lastWordEnd } = await page.evaluate(async () => {
       const { words } = await fetch('/timings/ch002.json').then(response => response.json())
@@ -195,6 +194,15 @@ test.describe('paginated reading', () => {
     expect(midChapterTime).toBeLessThan(lastWordEnd)
     await expect.poll(() => page.locator('audio').evaluate(audio => audio.duration))
       .toBeGreaterThan(midChapterTime)
+
+    await page.locator('audio').evaluate(async (audio, target) => {
+      audio.currentTime = target
+      audio.dispatchEvent(new Event('timeupdate'))
+      await new Promise(resolve => requestAnimationFrame(() => requestAnimationFrame(resolve)))
+    }, midChapterTime)
+
+    await page.getByRole('button', { name: 'Page' }).click()
+    await expect.poll(() => rendererFlow(page)).toBe('paginated')
 
     await expect.poll(() => page.locator('foliate-view').evaluate(view =>
       Boolean(view.lastLocation?.range))).toBe(true)
