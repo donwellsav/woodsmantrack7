@@ -1,7 +1,8 @@
 import { useEffect, useRef, useState, useCallback } from 'react'
 import ErrorBoundary from './ErrorBoundary.jsx'
 import SettingsPanel from './SettingsPanel.jsx'
-import { FONTS, FLOW_OPTS, loadPrefs } from './prefs.js'
+import { FONTS, loadPrefs, rendererFlow } from './prefs.js'
+import { PROGRESS_KEY, bookPercentage, parseProgress, updateProgress } from './progress.js'
 
 // In production, audio is served from Cloudflare R2 via a custom domain
 // (audio.donewellbooks.com) bound to the woodsman-audio bucket. R2 gives us
@@ -13,9 +14,30 @@ const MANIFEST_URL = (typeof window !== 'undefined' && window.location.hostname 
   ? '/chapters.json' : './chapters.json'
 const AUDIO_BASE = (typeof window !== 'undefined' && window.location.hostname === 'localhost')
   ? '/audio' : 'https://audio.donewellbooks.com'
-const PROGRESS_KEY = 'woodsman-progress-v1'
 const THEME_KEY = 'woodsman-theme-v1'
 const SAVE_INTERVAL_MS = 3000 // throttle audio-position saves
+const FOLIATE_UPGRADE_TIMEOUT_MS = 5000
+
+async function fetchEpubBlob() {
+  const response = await fetch(EPUB_URL)
+  if (!response.ok) throw new Error(`EPUB HTTP ${response.status}`)
+  return response.blob()
+}
+
+async function waitForFoliateView() {
+  if (customElements.get('foliate-view')) return
+  let timeout
+  try {
+    await Promise.race([
+      customElements.whenDefined('foliate-view'),
+      new Promise((_, reject) => {
+        timeout = setTimeout(() => reject(new Error('foliate-view upgrade timed out')), FOLIATE_UPGRADE_TIMEOUT_MS)
+      }),
+    ])
+  } finally {
+    clearTimeout(timeout)
+  }
+}
 
 // Readable book typography + colors for each theme, injected into the EPUB iframe.
 const READER_FONT = '"Iowan Old Style", "Palatino Linotype", Palatino, "Hoefler Text", Constantia, Georgia, serif'
@@ -191,16 +213,21 @@ const IconChevron = ({ direction = 'up' }) => (
 
 export default function App() {
   const [manifest, setManifest] = useState(null)
-  const [currentIndex, setCurrentIndex] = useState(0)
+  const [progress, setProgress] = useState(() => {
+    try { return parseProgress(localStorage.getItem(PROGRESS_KEY)) } catch { return parseProgress(null) }
+  })
+  const progressRef = useRef(progress)
+  const [currentIndex, setCurrentIndex] = useState(progress.currentIndex)
   // CQ-16: mirror so applySeek (which fires async on loadedmetadata) reads the
   // current chapter index, not the one captured at the render that scheduled
   // the listener.
-  const currentIndexRef = useRef(0)
-  useEffect(() => { currentIndexRef.current = currentIndex }, [currentIndex])
+  const currentIndexRef = useRef(progress.currentIndex)
   const [isPlaying, setIsPlaying] = useState(false)
   const [currentTime, setCurrentTime] = useState(0)
   const [duration, setDuration] = useState(0)
   const [loading, setLoading] = useState(true)
+  const [readerState, setReaderState] = useState({ status: 'loading', error: null })
+  const [readerKey, setReaderKey] = useState(0)
   // PERF-7: SW update prompt state. The new SW waits to activate until the
   // user accepts this toast — preserves in-memory refs (timingsCache,
   // textMapRef, sectionIndexMapRef) across deploys during a long listening session.
@@ -221,7 +248,6 @@ export default function App() {
     mq.addEventListener('change', onChange)
     return () => mq.removeEventListener('change', onChange)
   }, [])
-  const [audioCacheProgress, setAudioCacheProgress] = useState(null) // null=idle, {done,total}=downloading
   // (syncAvailable removed — sync badge is no longer shown)
   const [timings, setTimings] = useState(null)
   const [theme, setTheme] = useState(initialTheme)
@@ -242,7 +268,7 @@ export default function App() {
   const timingsCache = useRef({})
   const timingsRef = useRef(null)         // mirror of timings state for event handlers
   const sectionIndexMapRef = useRef({})   // chapter id -> section index for renderer.goTo
-  const loadHandlerRef = useRef(null)     // CQ-7: named foliate 'load' handler so we can removeEventListener
+  const readerHandlersRef = useRef(new WeakMap()) // view -> named listeners removed during remount cleanup
   const applySeekRef = useRef(null)       // CQ-3: pending applySeek listener so chapter change can remove it
   const textMapRetriesRef = useRef(0)     // CQ-4: section-text-map retry counter, reset on chapter change
   const textMapRef = useRef(null)         // { fullText, posMap } for current section
@@ -251,12 +277,12 @@ export default function App() {
   const lastWordIdxRef = useRef(-1)
   const sentenceMapRef = useRef([])       // [{ start, end }] word-index range per sentence
   const wordToSentenceRef = useRef([])    // wordIdx -> sentenceIdx reverse lookup
-  const pendingSeekRef = useRef(0)         // audio seek target to restore on chapter load
+  const pendingSeekRef = useRef(null)      // audio seek target to restore on chapter load
   const lastSaveRef = useRef(0)            // throttle timestamp for progress saves
+  const pageRangeRef = useRef(null)         // paginated: Foliate's visible range for the current page
   const pageEndRef = useRef(Infinity)      // paginated: end time of last visible word on current page
   const pageTurningRef = useRef(false)     // paginated: true while a page-turn is in flight (prevents re-entry)
   const pageTurnAtRef = useRef(0)          // paginated: timestamp of last page-turn (for stuck-latch timeout)
-  const relocateHandlerRef = useRef(null)  // paginated: relocate event handler for cleanup
   const rafIdxRef = useRef(-1)            // PERF-5: pending rAF word index (-1 = no scheduled frame)
   const rafHandleRef = useRef(0)          // PERF-5: handle of the in-flight rAF so we can cancel on unmount
   const chapterGenRef = useRef(0)         // CQ-8: increments on chapter change; mapWordsToDOM / highlightWord bail if the gen they were called with is stale
@@ -265,6 +291,7 @@ export default function App() {
   const cssRafRef = useRef(0)             // CQ-10: rAF handle for enforceSingleColumn so rapid applyReaderCss calls don't pile up frames
   const isScrubbingRef = useRef(false)    // PERF-9: true while the user is dragging the seek slider
   const epubPromiseRef = useRef(null)     // PERF-10: preloaded EPUB Blob promise (parallel with manifest fetch)
+  const readerAttemptRef = useRef(0)      // ignores completion from reader instances replaced by Retry
 
   useEffect(() => {
     timingsRef.current = timings
@@ -283,38 +310,15 @@ export default function App() {
   useEffect(() => {
     prefsRef.current = prefs
     try { localStorage.setItem(PREFS_KEY, JSON.stringify(prefs)) } catch {}
+    if (audioRef.current) audioRef.current.playbackRate = prefs.playbackRate
     // switch the renderer's flow mode live; foliate re-renders the section
     const view = viewRef.current
     if (view?.renderer?.setAttribute) {
-      try { view.renderer.setAttribute('flow', prefs.flow) } catch {}
+      try { view.renderer.setAttribute('flow', rendererFlow(prefs.flow)) } catch {}
     }
     applyReaderCss()
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [prefs])
-
-  // Download all audio files into the browser's Cache API for offline use.
-  // Fetches each chapter MP3 one at a time, updates progress state.
-  async function downloadAllAudio() {
-    if (!manifest?.chapters) return
-    const chapters = manifest.chapters.filter(c => c.audio)
-    const cache = await caches.open('audio-offline')
-    setAudioCacheProgress({ done: 0, total: chapters.length })
-    for (let i = 0; i < chapters.length; i++) {
-      try {
-        const url = `${AUDIO_BASE}/${chapters[i].audio}`
-        // Check if already cached
-        const cached = await cache.match(url)
-        if (!cached) {
-          const res = await fetch(url)
-          if (res.ok) await cache.put(url, res.clone())
-        }
-        setAudioCacheProgress({ done: i + 1, total: chapters.length })
-      } catch (e) {
-        console.warn('audio cache failed for', chapters[i].audio, e)
-      }
-    }
-    setAudioCacheProgress(null)
-  }
 
   function applyReaderCss() {
     // PERF-6: debounce so rapid +/- clicks (size, lineHeight) coalesce into a
@@ -339,14 +343,16 @@ export default function App() {
   }
 
   // ---- reading-progress persistence ----
-  function saveProgress(idx, time) {
-    try {
-      localStorage.setItem(PROGRESS_KEY, JSON.stringify({
-        currentIndex: idx,
-        currentTime: Math.max(0, time || 0),
-        updatedAt: Date.now(),
-      }))
-    } catch {}
+  function saveProgress(idx, time, duration, completed) {
+    const next = updateProgress(progressRef.current, {
+      currentIndex: idx,
+      currentTime: time,
+      duration,
+      completed,
+    })
+    progressRef.current = next
+    setProgress(next)
+    try { localStorage.setItem(PROGRESS_KEY, JSON.stringify(next)) } catch {}
   }
 
   // ---- reading-progress persistence (continued below after `chapter` decl) ----
@@ -355,7 +361,12 @@ export default function App() {
   useEffect(() => {
     const flush = () => {
       const a = audioRef.current
-      saveProgress(currentIndex, a?.currentTime || 0)
+      const idx = currentIndexRef.current
+      const saved = progressRef.current
+      const time = a?.readyState >= 1
+        ? a.currentTime
+        : saved.chapters[idx]?.seconds ?? (saved.currentIndex === idx ? saved.currentTime : 0)
+      saveProgress(idx, time, manifest?.chapters[idx]?.duration || a?.duration)
     }
     // CQ-2: hoist the visibilitychange handler to a named function so the
     // cleanup can remove it. The previous anonymous handler leaked across
@@ -368,7 +379,7 @@ export default function App() {
       document.removeEventListener('visibilitychange', onVis)
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [currentIndex])
+  }, [currentIndex, manifest])
 
   // ---- load manifest ----
   useEffect(() => {
@@ -376,7 +387,10 @@ export default function App() {
     // previous code only fetched /book.epub inside openFoliateView (after
     // React commits + foliate finishes loading), serializing ~260KB behind
     // the chapter list paint. Preloading here lets both round-trips overlap.
-    epubPromiseRef.current = fetch(EPUB_URL).then(r => r.blob()).catch(() => null)
+    epubPromiseRef.current = fetchEpubBlob()
+    // The reader consumes this same promise after the manifest loads. Attach a
+    // handler now so an early HTTP failure is not reported as unhandled.
+    epubPromiseRef.current.catch(() => {})
     // CQ-11: handle network / parse failures so the app doesn't hang on
     // "Loading..." forever. Surface the error in the UI so the user can
     // tell the difference between "still loading" and "the manifest is gone".
@@ -388,13 +402,12 @@ export default function App() {
       setManifest(m)
       setLoading(false)
       // restore last position
-      try {
-        const saved = JSON.parse(localStorage.getItem(PROGRESS_KEY) || 'null')
-        if (saved && typeof saved.currentIndex === 'number' && saved.currentIndex < m.chapters.length) {
-          setCurrentIndex(saved.currentIndex)
-          pendingSeekRef.current = saved.currentTime || 0
-        }
-      } catch {}
+      const saved = progressRef.current
+      const idx = saved.currentIndex < m.chapters.length ? saved.currentIndex : 0
+      currentIndexRef.current = idx
+      setCurrentIndex(idx)
+      pendingSeekRef.current = saved.chapters[idx]?.seconds
+        ?? (saved.currentIndex === idx ? saved.currentTime : 0)
     }).catch(err => {
       // eslint-disable-next-line no-console
       console.error('manifest load failed:', err)
@@ -404,16 +417,6 @@ export default function App() {
   }, [])
 
   const chapter = manifest?.chapters[currentIndex]
-
-  // persist the active chapter whenever it changes (fresh start; accurate
-  // position is persisted by the throttled save in onTimeUpdate).
-  // CQ-6: include `manifest` + `chapter` in deps so the first render after
-  // manifest lands doesn't read a stale closure. The effect MUST be declared
-  // after `const chapter` (above) to avoid the TDZ — Vite 7 / strict-mode
-  // caught what Vite 5 silently allowed.
-  useEffect(() => {
-    if (manifest && chapter) saveProgress(currentIndex, 0)
-  }, [currentIndex, manifest, chapter])
 
   // A11Y-12: Esc closes the settings panel; the old SettingsModal had this
   // and the inline-panel refactor lost it. Restores keyboard parity.
@@ -428,6 +431,8 @@ export default function App() {
   useEffect(() => {
     setTimings(null)
     wordSpansRef.current = []
+    pageRangeRef.current = null
+    pageEndRef.current = Infinity
     lastWordIdxRef.current = -1
     // CQ-4: reset the retry counter so chapter A's pending retries can't
     // fire after chapter B's section loads.
@@ -525,84 +530,26 @@ export default function App() {
     // CQ-8: bail if a chapter navigation happened during the build.
     if (gen !== chapterGenRef.current) return
     wordSpansRef.current = spans
+    if (prefsRef.current.flow === 'paginated') updatePageEnd()
   }
 
-  // Paginated mode: compute the end time of the last word visible on the
-  // current page. Uses foliate's page property + total pages to figure out
-  // which portion of wordSpans belongs to this page.
+  // Paginated mode: map Foliate's exact visible DOM range to the final aligned
+  // word that starts before the range ends.
   function updatePageEnd() {
-    const r = viewRef.current?.renderer
-    if (!r) return
+    pageEndRef.current = Infinity
+    const range = pageRangeRef.current
     const ws = wordSpansRef.current
     const t = timingsRef.current
-    if (!ws?.length || !t?.words?.length) return
-    // In foliate's paginated mode, CSS columns lay text horizontally.
-    // The iframe's documentElement has a fixed width (one column) but
-    // the body overflows into multiple columns. getBoundingClientRect
-    // in the iframe returns viewport-relative coords — all columns
-    // appear at x≈0-700 because the viewport only shows one column.
-    //
-    // To find which words are on the CURRENT page, we compare the
-    // word's rect against the iframe's visible viewport. If a word's
-    // rect has left >= 0 and right <= iframe width, it's visible.
-    // Words on other columns have rects that are clipped to zero or
-    // pushed off-screen.
-    //
-    // Actually: in columnized CSS, ALL columns' text nodes report
-    // valid rects within [0, columnWidth]. They overlap! We can't
-    // distinguish them by position alone.
-    //
-    // Alternative: use the renderer's page property + word index ranges.
-    // buildSectionTextMap processes ALL words. Words on page N have
-    // sequential indices. The page boundary is at the word index where
-    // the text transitions from one column to the next.
-    //
-    // Simplest reliable approach: sample a word's rect. If its rect
-    // width is > 0 AND its top is within [0, doc height], it exists.
-    // Walk from the LAST word backward — the first word we find whose
-    // rect.top is within the viewport height is the last visible word
-    // on the current page.
-    const frame = r.shadowRoot?.querySelector('iframe')
-    const doc = frame?.contentDocument
-    if (!doc) return
-    const viewHeight = doc.documentElement.clientHeight || 740
-    let lastVisibleIdx = -1
-    for (let i = ws.length - 1; i >= 0; i--) {
-      const s = ws[i]
-      if (!s?.node) continue
+    if (!range || !ws?.length || !t?.words?.length) return
+    for (let i = Math.min(ws.length, t.words.length) - 1; i >= 0; i--) {
+      const span = ws[i]
+      if (!span?.node) continue
       try {
-        const range = doc.createRange()
-        range.setStart(s.node, s.offset)
-        range.setEnd(s.node, Math.min(s.offset + s.length, s.node.textContent.length))
-        const rect = range.getBoundingClientRect()
-        // In columnized mode, visible words have rects with left within
-        // [0, columnWidth] and top within [0, viewHeight]. But words in
-        // OTHER columns ALSO have left within this range (they overlap).
-        // However, words in the current column are the ones the browser
-        // actually rendered as visible. We can check if the rect is
-        // "real" by verifying it has non-zero width AND is within the
-        // viewport vertically.
-        if (rect.width > 0 && rect.top >= -5 && rect.bottom <= viewHeight + 5) {
-          // This is tricky — multiple columns' words pass this check.
-          // For now, just use the first match from the end. This works
-          // because wordSpans are built in document order, and the
-          // current page's words are the ones that were most recently
-          // laid out in the visible column.
-          lastVisibleIdx = i
-          break
+        if (range.comparePoint(span.node, span.offset) <= 0) {
+          pageEndRef.current = t.words[i]?.end ?? Infinity
+          return
         }
       } catch {}
-    }
-    // Fallback: if the rect approach fails, use the simple approach:
-    // find the last non-null span (works when foliate only loads one
-    // page's worth of content into the iframe).
-    if (lastVisibleIdx < 0) {
-      for (let i = ws.length - 1; i >= 0; i--) {
-        if (ws[i]?.node) { lastVisibleIdx = i; break }
-      }
-    }
-    if (lastVisibleIdx >= 0) {
-      pageEndRef.current = t.words[lastVisibleIdx]?.end ?? Infinity
     }
   }
 
@@ -643,12 +590,7 @@ export default function App() {
     textMapRef.current = { fullText: combined, posMap: combinedMap }
     enforceSingleColumn()
     mapWordsToDOM()
-    // Paginated mode: after word spans are built, update pageEndRef to
-    // the end time of the last word visible on the current page.
     pageTurningRef.current = false
-    if (prefsRef.current.flow === 'paginated') {
-      updatePageEnd()
-    }
     if (prefsRef.current.clickToSeek) {
       attachClickToSeek(docs)
     } else {
@@ -691,26 +633,48 @@ export default function App() {
     }
   }
 
+  function isCurrentReaderAttempt(view, attempt) {
+    return readerAttemptRef.current === attempt && viewRef.current === view
+  }
+
+  function cleanupFoliateView(view) {
+    if (!view) return
+    const handlers = readerHandlersRef.current.get(view)
+    if (handlers?.load) {
+      try { view.removeEventListener('load', handlers.load) } catch {}
+    }
+    if (handlers?.relocate) {
+      try { view.removeEventListener('relocate', handlers.relocate) } catch {}
+    }
+    readerHandlersRef.current.delete(view)
+    try { view.close?.() } catch {}
+  }
+
   // ---- open foliate-view (callback ref so it runs after the element is attached) ----
-  async function openFoliateView(view) {
+  async function openFoliateView(view, attempt) {
     try {
+      await waitForFoliateView()
+      if (!isCurrentReaderAttempt(view, attempt)) return
       // CQ-23: clear any stale section-index map from a previous open attempt
       // so a re-init (StrictMode double-invoke, ErrorBoundary retry) doesn't
       // carry forward mappings from a different EPUB instance.
       sectionIndexMapRef.current = {}
       // PERF-10: consume the preloaded EPUB blob (kicked off alongside the
-      // manifest fetch). Falls back to a fresh fetch if the preload failed.
-      let blob = epubPromiseRef.current ? await epubPromiseRef.current : null
-      if (!blob) {
-        const res = await fetch(EPUB_URL)
-        blob = await res.blob()
-      }
+      // manifest fetch). Retry intentionally clears it and fetches a new copy.
+      const blob = epubPromiseRef.current
+        ? await epubPromiseRef.current
+        : await fetchEpubBlob()
+      if (!isCurrentReaderAttempt(view, attempt)) return
       const file = new File([blob], 'book.epub', { type: blob.type || 'application/epub+zip' })
       await view.open(file)
+      if (!isCurrentReaderAttempt(view, attempt)) {
+        cleanupFoliateView(view)
+        return
+      }
       // continuous scroll: one smooth native-scroll document per chapter
       // — no transition to jank, and getContents()
       // returns the whole chapter so the text map builds once per chapter.
-      try { view.renderer.setAttribute('flow', prefs.flow) } catch {}
+      try { view.renderer.setAttribute('flow', rendererFlow(prefsRef.current.flow)) } catch {}
       // theme the reader's scroll container (it lives in the paginator's shadow
       // root, so inject a stylesheet there to style its scrollbar per theme).
       try {
@@ -732,7 +696,11 @@ export default function App() {
         }
       } catch {}
       // foliate renders nothing until you navigate — trigger the first section
-      await view.renderer.firstSection().catch(() => {})
+      await view.renderer.firstSection()
+      if (!isCurrentReaderAttempt(view, attempt)) {
+        cleanupFoliateView(view)
+        return
+      }
       // theme the EPUB content (foliate stores + reapplies these on every chapter)
       try { view.renderer.setStyles(readerCss(themeRef.current, prefsRef.current)) } catch {}
       // SMOKE-1: build chapter-id -> section-index map. The previous approach
@@ -747,62 +715,57 @@ export default function App() {
           if (m) sectionIndexMapRef.current[`ch${m[1]}`] = i
         })
       }
-      foliateReady.current = true
-      // CQ-5: bump the state flag so the chapter-nav effect re-runs and any
-      // chapter the user clicked during foliate's open resolves against the
-      // LATEST chapter.id (not whatever was captured in pendingNav when they
-      // first clicked).
-      setFoliateReadyFlag(true)
       // Rebuild the text map only when a section (chapter) loads — NOT on every
       // relocate/page-change, which would block the animation frame and stutter.
-      // CQ-7: store the handler in a ref so a re-init (StrictMode double-invoke,
-      // ErrorBoundary retry) can remove the previous one before adding a new one.
-      // Without this, two load handlers would fire per section change and race
-      // on textMapRef.
-      if (loadHandlerRef.current) {
-        try { view.removeEventListener('load', loadHandlerRef.current) } catch {}
-      }
-      loadHandlerRef.current = () => { buildSectionTextMap(); enforceSingleColumn() }
-      view.addEventListener('load', loadHandlerRef.current)
+      const onLoad = () => { buildSectionTextMap(); enforceSingleColumn() }
+      view.addEventListener('load', onLoad)
       // Paginated mode: listen for 'relocate' to detect page changes.
       // The relocate event fires after every page scroll/turn. We use it
       // to clear the page-turn latch and update pageEndRef.
-      const onRelocate = () => {
+      const onRelocate = ({ detail }) => {
         if (prefsRef.current.flow !== 'paginated') return
+        pageRangeRef.current = detail?.range ?? null
         pageTurningRef.current = false
-        // Recompute pageEndRef from the current page's visible words.
-        // In paginated mode, getContents() returns the whole section,
-        // but only words on the current page have non-null spans whose
-        // text nodes are within the visible column. We use foliate's
-        // own page property to know the current page number.
         updatePageEnd()
       }
       view.addEventListener('relocate', onRelocate)
-      relocateHandlerRef.current = onRelocate
+      readerHandlersRef.current.set(view, { load: onLoad, relocate: onRelocate })
       buildSectionTextMap()
       if (pendingNav.current) {
         const idx = sectionIndexMapRef.current[pendingNav.current]
         if (typeof idx === 'number') view.renderer.goTo({ index: idx }).catch(() => {})
         pendingNav.current = null
       }
+      if (!isCurrentReaderAttempt(view, attempt)) {
+        cleanupFoliateView(view)
+        return
+      }
+      foliateReady.current = true
+      // CQ-5: bump the state flag so the chapter-nav effect re-runs and any
+      // chapter the user clicked during foliate's open resolves against the
+      // LATEST chapter.id (not whatever was captured in pendingNav when they
+      // first clicked).
+      setFoliateReadyFlag(true)
+      setReaderState({ status: 'ready', error: null })
     } catch (e) {
+      if (!isCurrentReaderAttempt(view, attempt)) {
+        cleanupFoliateView(view)
+        return
+      }
       console.error('foliate open failed', e)
+      cleanupFoliateView(view)
+      setReaderState({ status: 'error', error: e?.message || String(e) })
     }
   }
 
-  // CQ-7: unmount cleanup. Remove the foliate 'load' listener + cancel any
-  // pending rAF so a StrictMode remount or ErrorBoundary retry doesn't leave
-  // stale handlers firing against a detached view.
+  // CQ-7: unmount cleanup. Invalidate the attempt, remove listeners, close the
+  // renderer, and cancel scheduled work so a detached view cannot update App.
   useEffect(() => {
     return () => {
       const view = viewRef.current
-      if (view && loadHandlerRef.current) {
-        try { view.removeEventListener('load', loadHandlerRef.current) } catch {}
-      }
-      const view2 = viewRef.current
-      if (view2 && relocateHandlerRef.current) {
-        try { view2.removeEventListener('relocate', relocateHandlerRef.current) } catch {}
-      }
+      readerAttemptRef.current += 1
+      viewRef.current = null
+      cleanupFoliateView(view)
       if (rafHandleRef.current) cancelAnimationFrame(rafHandleRef.current)
       if (cssRafRef.current) cancelAnimationFrame(cssRafRef.current)
       if (cssDebounceRef.current) clearTimeout(cssDebounceRef.current)
@@ -810,12 +773,34 @@ export default function App() {
   }, [])
 
   const viewCallbackRef = useCallback((el) => {
-    viewRef.current = el
-    if (el && !el.__openStarted) {
-      el.__openStarted = true
-      openFoliateView(el)
+    if (!el) {
+      const view = viewRef.current
+      if (view) {
+        readerAttemptRef.current += 1
+        viewRef.current = null
+        cleanupFoliateView(view)
+      }
+      return
     }
+    const previousView = viewRef.current
+    if (previousView && previousView !== el) cleanupFoliateView(previousView)
+    viewRef.current = el
+    const attempt = ++readerAttemptRef.current
+    setReaderState({ status: 'loading', error: null })
+    openFoliateView(el, attempt)
   }, [])
+
+  function retryReader() {
+    readerAttemptRef.current += 1
+    const view = viewRef.current
+    viewRef.current = null
+    cleanupFoliateView(view)
+    epubPromiseRef.current = null
+    foliateReady.current = false
+    setFoliateReadyFlag(false)
+    setReaderState({ status: 'loading', error: null })
+    setReaderKey(key => key + 1)
+  }
 
   // ---- navigate reader when chapter changes ----
   // CQ-5: depend on foliateReadyFlag (state) so the effect re-runs once foliate
@@ -842,13 +827,21 @@ export default function App() {
   useEffect(() => {
     const audio = audioRef.current
     if (!chapter || !audio) return
+    // restore saved position for this chapter (set by mount restore or a manual resume)
+    const saved = progressRef.current
+    const seekTarget = pendingSeekRef.current
+      ?? saved.chapters[currentIndex]?.seconds
+      ?? (saved.currentIndex === currentIndex ? saved.currentTime : 0)
+    pendingSeekRef.current = null
+    saveProgress(currentIndex, seekTarget, chapter.duration)
+    setCurrentTime(seekTarget)
+    setDuration(chapter.duration || 0)
+    // Ignore the native zero-position timeupdate emitted while load() swaps
+    // sources; seekTarget above is authoritative until metadata arrives.
+    lastSaveRef.current = Date.now()
+    currentIndexRef.current = currentIndex
     audio.src = `${AUDIO_BASE}/${chapter.audio}`
     audio.load()
-    setCurrentTime(0)
-    setDuration(chapter.duration || 0)
-    // restore saved position for this chapter (set by mount restore or a manual resume)
-    const seekTarget = pendingSeekRef.current
-    pendingSeekRef.current = 0
     if (seekTarget > 0 && isFinite(seekTarget)) {
       // CQ-3: stash the listener in a ref so the chapter-change effect can
       // remove it if the user navigates away before metadata loads. Without
@@ -859,10 +852,9 @@ export default function App() {
         setCurrentTime(seekTarget)
         // CQ-16: read from ref so a slow loadedmetadata can't save the wrong
         // chapter's progress.
-        saveProgress(currentIndexRef.current, seekTarget)
+        saveProgress(currentIndexRef.current, seekTarget, chapter.duration || audio.duration)
         // CQ-21: bump the throttle so the next onTimeUpdate doesn't immediately
-        // fire another save (and potentially race with the chapter-load effect's
-        // saveProgress(currentIndex, 0)).
+        // duplicate the restored-position save above.
         lastSaveRef.current = Date.now()
         audio.removeEventListener('loadedmetadata', applySeek)
         applySeekRef.current = null
@@ -895,7 +887,8 @@ export default function App() {
     const tNow = Date.now()
     if (tNow - lastSaveRef.current > SAVE_INTERVAL_MS) {
       lastSaveRef.current = tNow
-      saveProgress(currentIndex, a.currentTime)
+      const idx = currentIndexRef.current
+      saveProgress(idx, a.currentTime, manifest?.chapters[idx]?.duration || a.duration)
     }
     const t = timingsRef.current
     if (!t || !t.words || !t.words.length) return
@@ -907,6 +900,23 @@ export default function App() {
     while (lo <= hi) {
       const mid = (lo + hi) >> 1
       if (t.words[mid].start <= now) { idx = mid; lo = mid + 1 } else { hi = mid - 1 }
+    }
+    // Paginated mode: if audio has passed the end of the current page's
+    // last visible word, flip to the next page. The page-turn latch
+    // prevents re-entry until buildSectionTextMap resets it on the
+    // foliate 'load' event (which fires after the page renders).
+    if (prefsRef.current.flow === 'paginated') {
+      // Clear stuck latch: if a page-turn was requested more than 3s ago
+      // but the 'load' event never fired, force-clear so we can retry.
+      if (pageTurningRef.current && performance.now() - pageTurnAtRef.current > 3000) {
+        pageTurningRef.current = false
+      }
+      if (!pageTurningRef.current && a.currentTime >= pageEndRef.current) {
+        pageTurningRef.current = true
+        pageTurnAtRef.current = performance.now()
+        const r = viewRef.current?.renderer
+        if (r && typeof r.next === 'function') r.next().catch(() => {})
+      }
     }
     // PERF-5: coalesce into a single rAF. Skip when the SENTENCE hasn't
     // changed — the whole sentence highlights at once, so re-highlighting
@@ -925,29 +935,36 @@ export default function App() {
         highlightWord(target)
       }
     })
-    // Paginated mode: if audio has passed the end of the current page's
-    // last visible word, flip to the next page. The page-turn latch
-    // prevents re-entry until buildSectionTextMap resets it on the
-    // foliate 'load' event (which fires after the page renders).
-    if (prefsRef.current.flow === 'paginated') {
-      // Clear stuck latch: if a page-turn was requested more than 3s ago
-      // but the 'load' event never fired, force-clear so we can retry.
-      if (pageTurningRef.current && performance.now() - pageTurnAtRef.current > 3000) {
-        pageTurningRef.current = false
-      }
-      if (!pageTurningRef.current && a.currentTime >= pageEndRef.current) {
-        pageTurningRef.current = true
-        pageTurnAtRef.current = performance.now()
-        const r = viewRef.current?.renderer
-        if (r && typeof r.next === 'function') r.next().catch(() => {})
-      }
-    }
   }
-  const onLoadedMeta = () => setDuration(audioRef.current?.duration || 0)
+  const onLoadedMeta = () => {
+    const audio = audioRef.current
+    if (!audio) return
+    audio.playbackRate = prefsRef.current.playbackRate
+    setDuration(audio.duration || 0)
+  }
   const advancingRef = useRef(false)
+  const activateChapter = useCallback((idx) => {
+    const oldIndex = currentIndexRef.current
+    if (!manifest || idx === oldIndex || idx < 0 || idx >= manifest.chapters.length) return
+
+    const audio = audioRef.current
+    const saved = progressRef.current
+    const oldSeconds = audio?.readyState >= 1
+      ? audio.currentTime
+      : saved.chapters[oldIndex]?.seconds ?? (saved.currentIndex === oldIndex ? saved.currentTime : 0)
+    const targetSeconds = saved.chapters[idx]?.seconds
+      ?? (saved.currentIndex === idx ? saved.currentTime : 0)
+
+    saveProgress(oldIndex, oldSeconds, manifest.chapters[oldIndex]?.duration || audio?.duration)
+    pendingSeekRef.current = targetSeconds
+    setCurrentIndex(idx)
+  }, [manifest])
   const onEnded = () => {
-    if (manifest && currentIndex < manifest.chapters.length - 1) {
-      setCurrentIndex(i => i + 1)
+    const idx = currentIndexRef.current
+    const end = manifest?.chapters[idx]?.duration || audioRef.current?.duration || 0
+    saveProgress(idx, end, end, true)
+    if (manifest && idx < manifest.chapters.length - 1) {
+      activateChapter(idx + 1)
     } else {
       // End of book: turn off continuous-playback mode so the next pause
       // is treated as a real user pause.
@@ -1137,16 +1154,20 @@ export default function App() {
     }
   }
   const selectChapter = useCallback((idx) => {
-    setCurrentIndex(idx)
+    activateChapter(idx)
     // UX-01: on mobile, selecting a chapter should close the drawer so the user
     // can see the reader immediately instead of manually dismissing the panel.
     if (isMobile()) setSidebarOpen(false)
-  }, [])
+  }, [activateChapter])
   // CQ-15: memoize next/prev with useCallback so they don't re-allocate every
   // render. The Media Session effect (and any other consumer) gets stable
   // references.
-  const next = useCallback(() => setCurrentIndex(i => Math.min(i + 1, (manifest?.chapters.length || 1) - 1)), [manifest])
-  const prev = useCallback(() => setCurrentIndex(i => Math.max(i - 1, 0)), [])
+  const next = useCallback(() => {
+    activateChapter(Math.min(currentIndexRef.current + 1, (manifest?.chapters.length || 1) - 1))
+  }, [activateChapter, manifest])
+  const prev = useCallback(() => {
+    activateChapter(Math.max(currentIndexRef.current - 1, 0))
+  }, [activateChapter])
   // A11Y-15: seek by a fixed offset from the lock-screen/notification controls.
   const seekBy = useCallback((delta) => {
     const audio = audioRef.current
@@ -1216,7 +1237,6 @@ export default function App() {
     import('virtual:pwa-register').then(({ registerSW }) => {
       off = registerSW({
         onNeedRefresh() { setUpdateAvailable(true) },
-        onOfflineReady() { /* silent — offline readiness is the default expectation */ },
         onRegisteredSW(url, reg) {
           // Stash the update function so the toast's "Reload" button can
           // trigger it. registerSW returns this via the second arg only in
@@ -1248,6 +1268,12 @@ export default function App() {
     )
   }
 
+  const continueIndex = progress.currentIndex < manifest.chapters.length ? progress.currentIndex : 0
+  const continueChapter = manifest.chapters[continueIndex]
+  const continueSeconds = progress.chapters[continueIndex]?.seconds
+    ?? (progress.currentIndex === continueIndex ? progress.currentTime : 0)
+  const percentage = bookPercentage(progress, manifest.chapters)
+
   const seekSlider = (
     <input
       className="seek"
@@ -1256,8 +1282,7 @@ export default function App() {
       onPointerDown={() => { isScrubbingRef.current = true }}
       onPointerUp={() => {
         // PERF-9: only commit the actual audio.currentTime at pointer-up so
-        // dragging the slider doesn't queue dozens of seeks (each can force
-        // a re-download of bytes from the SW cache).
+        // dragging the slider doesn't queue dozens of redundant seeks.
         isScrubbingRef.current = false
         if (audioRef.current) audioRef.current.currentTime = currentTime
         lastWordIdxRef.current = -1
@@ -1302,7 +1327,11 @@ export default function App() {
       </header>
 
       <div className="main">
-        <aside className={`sidebar ${sidebarOpen ? '' : 'closed'}`}>
+        <aside
+          className={`sidebar ${sidebarOpen ? '' : 'closed'}`}
+          inert={sidebarOpen ? undefined : ''}
+          aria-hidden={sidebarOpen ? undefined : 'true'}
+        >
           <div className="sidebar-header">
             <h2 id="chapters-heading" className="sidebar-heading">{showSettings ? 'Settings' : 'Chapters'}</h2>
           </div>
@@ -1310,44 +1339,69 @@ export default function App() {
             <SettingsPanel
               theme={theme} setTheme={setTheme}
               prefs={prefs} setPrefs={setPrefs}
-              audioCacheProgress={audioCacheProgress}
-              onDownloadAudio={downloadAllAudio}
             />
           ) : (
-            // A11Y-07: wrap the chapter list in a <nav> with aria-labelledby
-            // so screen-reader landmark navigation finds it.
-            <nav aria-labelledby="chapters-heading">
-              <ol className="chapter-list">
-                {manifest.chapters.map((c, i) => (
-                  <li key={c.id}>
-                    {/* A11Y-08: aria-current tells screen-reader users which
-                        chapter is active. Critical for an audiobook: the
-                        user must know where they are. */}
-                    <button
-                      className={`chapter-item ${i === currentIndex ? 'active' : ''}`}
-                      onClick={() => selectChapter(i)}
-                      aria-current={i === currentIndex ? 'true' : undefined}
-                    >
-                      <span className="chapter-title">{c.title}</span>
-                      <span className="chapter-meta">
-                        {c.type === 'title-only' && (
-                          <span className="badge" aria-label="Part title only chapter (no audio)">
-                            {c.id === 'ch003' ? 'Part I'
-                              : c.id === 'ch009' ? 'Part II'
-                              : c.id === 'ch016' ? 'Part III'
-                              : c.id === 'ch024' ? 'Part IV'
-                              : c.id === 'ch028' ? 'Part V'
-                              : 'title'}
+            <>
+              <div className="progress-summary">
+                {continueSeconds > 0 && (
+                  <div className="continue-cue">
+                    Continue from {continueChapter.title} · {fmt(continueSeconds)}
+                  </div>
+                )}
+                <span className="book-progress" aria-label={`Book progress: ${percentage}%`}>
+                  {percentage}% of book
+                </span>
+              </div>
+              {/* A11Y-07: wrap the chapter list in a <nav> with aria-labelledby
+                  so screen-reader landmark navigation finds it. */}
+              <nav aria-labelledby="chapters-heading">
+                <ol className="chapter-list">
+                  {manifest.chapters.map((c, i) => {
+                    const saved = progress.chapters[i]
+                    const seconds = saved?.seconds ?? (progress.currentIndex === i ? progress.currentTime : 0)
+                    const completed = saved?.completed === true || (c.duration > 0 && seconds >= c.duration)
+                    const chapterPercentage = c.duration > 0
+                      ? Math.min(100, Math.round((seconds / c.duration) * 100))
+                      : 0
+                    return (
+                      <li key={c.id}>
+                        {/* A11Y-08: aria-current tells screen-reader users which
+                            chapter is active. Critical for an audiobook: the
+                            user must know where they are. */}
+                        <button
+                          className={`chapter-item ${i === currentIndex ? 'active' : ''}`}
+                          onClick={() => selectChapter(i)}
+                          aria-current={i === currentIndex ? 'true' : undefined}
+                        >
+                          <span className="chapter-title">{c.title}</span>
+                          <span className="chapter-meta">
+                            {c.type === 'title-only' && (
+                              <span className="badge" aria-label="Part title only chapter (no audio)">
+                                {c.id === 'ch003' ? 'Part I'
+                                  : c.id === 'ch009' ? 'Part II'
+                                  : c.id === 'ch016' ? 'Part III'
+                                  : c.id === 'ch024' ? 'Part IV'
+                                  : c.id === 'ch028' ? 'Part V'
+                                  : 'title'}
+                              </span>
+                            )}
+                            {c.type === 'front-matter' && <span className="badge alt" aria-label="Front matter">intro</span>}
+                            {fmt(c.duration)}
+                            {completed ? (
+                              <span className="chapter-progress complete" aria-label="Completed">✓</span>
+                            ) : chapterPercentage > 0 ? (
+                              <span className="chapter-progress" aria-label={`${chapterPercentage}% complete`}>
+                                {chapterPercentage}%
+                              </span>
+                            ) : null}
                           </span>
-                        )}
-                        {c.type === 'front-matter' && <span className="badge alt" aria-label="Front matter">intro</span>}
-                        {fmt(c.duration)}
-                      </span>
-                    </button>
-                  </li>
-                ))}
-              </ol>
-            </nav>
+                        </button>
+                      </li>
+                    )
+                  })}
+                </ol>
+              </nav>
+            </>
           )}
         </aside>
         {/* UX-01: mobile backdrop. Tapping outside the sidebar closes the drawer. */}
@@ -1357,11 +1411,24 @@ export default function App() {
           aria-hidden="true"
         />
         <main className="reader" id="main-reader">
-          {/* CQ-1: catch throws from openFoliateView / buildTextMap /
-              highlightWord so a single malformed chapter doesn't white-
-              screen the whole app. */}
-          <ErrorBoundary>
-            <foliate-view ref={viewCallbackRef} class="foliate-view" />
+          {/* The boundary replaces this whole fragment on synchronous errors.
+              App renders async failures here too; both use the same retry. */}
+          <ErrorBoundary key={readerKey} onRetry={retryReader}>
+            <>
+              <foliate-view ref={viewCallbackRef} class="foliate-view" />
+              {readerState.status === 'loading' && (
+                <div className="reader-state" role="status" aria-live="polite">
+                  Loading reader…
+                </div>
+              )}
+              {readerState.status === 'error' && (
+                <div className="reader-state" role="alert">
+                  <div className="reader-state-message">Couldn't load the reader.</div>
+                  <div className="reader-state-detail">{readerState.error}</div>
+                  <button className="reader-state-retry" onClick={retryReader}>Retry</button>
+                </div>
+              )}
+            </>
           </ErrorBoundary>
         </main>
       </div>
@@ -1395,9 +1462,11 @@ export default function App() {
           </div>
           <div className="player-controls">
             <button className="icon-btn" onClick={prev} aria-label="Previous chapter"><IconPrev /></button>
+            <button className="icon-btn seek-step" onClick={() => seekBy(-15)} aria-label="Back 15 seconds"><span aria-hidden="true">−15</span></button>
             <button className="play-btn" onClick={togglePlay} aria-label={isPlaying ? 'Pause' : 'Play'} aria-pressed={isPlaying}>
               {isPlaying ? <IconPause /> : <IconPlay />}
             </button>
+            <button className="icon-btn seek-step" onClick={() => seekBy(15)} aria-label="Forward 15 seconds"><span aria-hidden="true">+15</span></button>
             <button className="icon-btn" onClick={next} aria-label="Next chapter"><IconNext /></button>
           </div>
         </div>
@@ -1447,4 +1516,3 @@ export default function App() {
       </div>
   )
 }
-

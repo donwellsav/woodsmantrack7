@@ -1,13 +1,11 @@
 import { Component } from 'react'
 
-// CQ-1: A throw inside openFoliateView, buildTextMap, or highlightWord used
-// to white-screen the entire app with no recovery UI. This boundary wraps
-// the foliate/audio section so a localized throw shows a retry button
-// instead of crashing the whole reader.
+// React error boundaries only catch synchronous render/lifecycle errors.
+// Async Foliate failures are handled by App's explicit reader lifecycle.
 //
 // Intentionally simple: no error reporting, no per-component boundaries.
 // Logs to console so devs can see the failure; production users get a
-// "Reload chapter" button that resets the boundary state.
+// Retry delegates to App so both failure paths remount the same fresh reader.
 
 export default class ErrorBoundary extends Component {
   constructor(props) {
@@ -26,10 +24,7 @@ export default class ErrorBoundary extends Component {
 
   handleRetry = () => {
     this.setState({ hasError: false, message: '' })
-    // Call the optional onRetry prop so App can re-trigger the open flow.
-    if (typeof this.props.onRetry === 'function') {
-      try { this.props.onRetry() } catch {}
-    }
+    if (typeof this.props.onRetry === 'function') this.props.onRetry()
   }
 
   render() {
@@ -37,13 +32,13 @@ export default class ErrorBoundary extends Component {
       return (
         <div className="error-boundary" role="alert">
           <div className="error-boundary-message">
-            Something went wrong loading this chapter.
+            Something went wrong loading the reader.
           </div>
           {this.state.message && (
             <div className="error-boundary-detail">{this.state.message}</div>
           )}
           <button className="error-boundary-retry" onClick={this.handleRetry}>
-            Reload chapter
+            Retry
           </button>
         </div>
       )

@@ -108,17 +108,15 @@ export default defineConfig({
           { src: '/icons/icon-512.png', sizes: '512x512', type: 'image/png', purpose: 'maskable' },
         ],
       },
-      // Audio + EPUB caching.
+      // PWA asset precaching.
       //
       // PERF-3: Workbox's CacheFirst handler does NOT slice Range requests out
       // of a cached 200 OK response — it returns the whole body. For audio
       // (where browsers issue Range to seek), that means seeking near the end
       // of an unplayed chapter forces a full ~30 MB download before the seek
       // resolves. To keep HTTP Range + byte serving working in production, we
-      // EXCLUDE /audio/* from service-worker caching and rely on the browser's
-      // native HTTP cache + the CDN's Range support. Audio still works
-      // offline IF the chapter has been played end-to-end (HTTP cache), but
-      // seeking beyond the cached range will hit the network.
+      // EXCLUDE /audio/* from service-worker caching and rely on the CDN's
+      // Range support. Audio requires a network connection.
       //
       // PERF-16: the previous runtimeCaching rule for *.epub was dead code —
       // book.epub is already in `includeAssets` above and therefore precached.
@@ -139,9 +137,8 @@ export default defineConfig({
           '**/foliate-js/vendor/pdfjs/**',
           '**/foliate-js/vendor/fflate.js',
         ],
-        // No runtimeCaching — audio is served via native HTTP cache + Range,
-        // EPUB is precached. Adjust here if you want a more aggressive audio
-        // cache (e.g. workbox-range-requests plugin) at the cost of seek bugs.
+        // No runtimeCaching: audio remains network-served with Range support,
+        // while the EPUB is precached above.
       },
     }),
   ],

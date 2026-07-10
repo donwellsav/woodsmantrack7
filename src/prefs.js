@@ -43,6 +43,10 @@ export const FLOW_OPTS = [
   { id: 'manual', label: 'Manual', note: 'No auto-scroll' },
 ]
 
+export function rendererFlow(flow) {
+  return flow === 'paginated' ? 'paginated' : 'scrolled'
+}
+
 // CQ-6: validate prefs from localStorage. Defaults are tuned for a comfortable
 // book-reading experience on both light and dark themes.
 export function loadPrefs() {
@@ -51,11 +55,12 @@ export function loadPrefs() {
     return {
       font: FONTS[p.font] ? p.font : 'iowan',
       size: typeof p.size === 'number' && p.size >= 12 && p.size <= 40 ? p.size : 19,
-      flow: p.flow === 'paginated' ? 'paginated' : 'scrolled',
+      flow: FLOW_OPTS.some(({ id }) => id === p.flow) ? p.flow : 'scrolled',
       lineHeight: typeof p.lineHeight === 'number' && p.lineHeight >= 1.3 && p.lineHeight <= 2.2 ? p.lineHeight : 1.7,
       clickToSeek: p.clickToSeek === true,
+      playbackRate: typeof p.playbackRate === 'number' && p.playbackRate >= 0.75 && p.playbackRate <= 2 ? p.playbackRate : 1,
     }
   } catch {
-    return { font: 'iowan', size: 19, flow: 'scrolled', lineHeight: 1.7, clickToSeek: false }
+    return { font: 'iowan', size: 19, flow: 'scrolled', lineHeight: 1.7, clickToSeek: false, playbackRate: 1 }
   }
 }

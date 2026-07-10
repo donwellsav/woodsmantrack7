@@ -21,7 +21,9 @@ jobs:
         with:
           node-version: 24
       - run: npm ci
-      - run: npm run build
+      - run: npm test
+      - run: npx playwright install --with-deps chromium
+      - run: npm run test:smoke
       - name: Install Wrangler
         run: npm install -g wrangler@latest
       - name: Deploy to Cloudflare Pages

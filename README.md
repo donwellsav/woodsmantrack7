@@ -11,7 +11,7 @@ highlighting each word in the reader as the narration reaches it.
 - **Word-level sync** — as the narration plays, the currently-spoken word is
   highlighted and scrolled into view in the reader (~99.7% word match rate).
 - **Media Session API** — lock-screen / media-key controls + chapter metadata.
-- **PWA** — installable, offline-capable (book, timings, and visited audio cached).
+- **PWA** — installable.
 
 ## Source assets
 
@@ -63,8 +63,9 @@ npm run preview  # serve the production build
   Loading it via a Vite `import()` from `public/` is blocked by Vite.
 - **`<foliate-view>` uses a callback ref**, not `useRef`, because React attaches
   the ref before the custom element is upgraded, and the open flow must run
-  after the element exists. A `__openStarted` guard prevents double-open under
-  StrictMode.
+  after the element exists. Each mount gets an attempt token so stale async
+  completions are ignored; cleanup and Retry close the old renderer before a
+  fresh element opens.
 - **Chapter navigation uses EPUB section indices, not CFIs or hrefs.** Pandoc
   EPUB section hrefs resolve to `null` inside foliate, and CFIs (`epubcfi(/6/8)`)
   throw inside foliate's `partsToNode` for this EPUB (the section-level CFI is
@@ -120,9 +121,6 @@ dependency or a larger refactor:
 - **PERF-11**: `buildSectionTextMap` runs synchronously on the main thread
   and blocks the UI for hundreds of ms on long chapters. Move to a Web
   Worker for true non-blocking parsing.
-- **PERF-1**: `CacheFirst` with `maxEntries: 100` evicts audio by recency
-  rather than listening position. Pinning the current/adjacent chapters
-  needs a custom Workbox plugin.
 - **PERF-19**: First-session bandwidth is ~31MB before first highlight
   (precache + EPUB + timings + audio chunk). Consider lazy-loading the
   EPUB only after the user picks a chapter.

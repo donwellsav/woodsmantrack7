@@ -3,7 +3,9 @@
 // (replaces the chapter list when the gear is active) — no modal/overlay.
 import { FONTS, FLOW_OPTS } from './prefs.js'
 
-export default function SettingsPanel({ theme, setTheme, prefs, setPrefs, audioCacheProgress, onDownloadAudio }) {
+const PLAYBACK_RATES = [0.75, 1, 1.25, 1.5, 1.75, 2]
+
+export default function SettingsPanel({ theme, setTheme, prefs, setPrefs }) {
   const fontEntries = Object.entries(FONTS)
   const flowEntries = FLOW_OPTS
   return (
@@ -79,6 +81,20 @@ export default function SettingsPanel({ theme, setTheme, prefs, setPrefs, audioC
       </div>
 
       <div className="settings-group">
+        <span className="settings-label">Playback speed</span>
+        <div className="option-row playback-speed" role="group" aria-label="Playback speed">
+          {PLAYBACK_RATES.map(rate => (
+            <button
+              key={rate}
+              className={`option-btn ${prefs.playbackRate === rate ? 'active' : ''}`}
+              onClick={() => setPrefs(p => ({ ...p, playbackRate: rate }))}
+              aria-pressed={prefs.playbackRate === rate}
+            >{rate}×</button>
+          ))}
+        </div>
+      </div>
+
+      <div className="settings-group">
         <label className="settings-label">Click to seek</label>
         <div className="option-row">
           <button
@@ -92,21 +108,6 @@ export default function SettingsPanel({ theme, setTheme, prefs, setPrefs, audioC
             aria-pressed={prefs.clickToSeek}
           >On</button>
         </div>
-      </div>
-
-      <div className="settings-group">
-        <label className="settings-label">Offline audio</label>
-        {audioCacheProgress ? (
-          <div className="audio-download-progress">
-            Downloading… {audioCacheProgress.done} / {audioCacheProgress.total}
-          </div>
-        ) : (
-          <button
-            className="option-btn"
-            style={{ width: '100%', padding: '8px' }}
-            onClick={onDownloadAudio}
-          >Download all audio for offline</button>
-        )}
       </div>
     </div>
   )
