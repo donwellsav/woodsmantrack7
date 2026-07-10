@@ -40,7 +40,6 @@ async function waitForFoliateView() {
 }
 
 // Readable book typography + colors for each theme, injected into the EPUB iframe.
-const READER_FONT = '"Iowan Old Style", "Palatino Linotype", Palatino, "Hoefler Text", Constantia, Georgia, serif'
 const THEMES = {
   dark: {
     // Deeper background (#181820 vs old #21212C) so the highlight glow
@@ -59,23 +58,29 @@ const THEMES = {
 
 // @font-face rules embedded in the reader CSS so each EPUB iframe can load
 // the fonts from /fonts/* (same origin). These cover the three non-system
-// fonts exposed in settings; the others fall through to native stacks.
+// fonts exposed in settings.
 // Use absolute URLs so @font-face resolves inside foliate's blob iframe.
 const FONT_BASE = typeof window !== 'undefined'
   ? new URL(`${import.meta.env.BASE_URL}fonts/`, window.location.origin).href
   : ''
 const FONT_FACES = `
+@font-face { font-family: 'Literata'; font-style: normal; font-weight: 400; font-display: swap;
+  src: url('${FONT_BASE}literata-400.woff2') format('woff2'); }
 @font-face { font-family: 'Lexend'; font-style: normal; font-weight: 400; font-display: swap;
   src: url('${FONT_BASE}lexend-400.woff2') format('woff2'); }
 @font-face { font-family: 'Atkinson Hyperlegible'; font-style: normal; font-weight: 400; font-display: swap;
   src: url('${FONT_BASE}atkinson-400.woff2') format('woff2'); }
 @font-face { font-family: 'OpenDyslexic'; font-style: normal; font-weight: 400; font-display: swap;
   src: url('${FONT_BASE}opendyslexic-400.woff2') format('woff2'); }
+@font-face { font-family: 'Merriweather'; font-style: normal; font-weight: 400; font-display: swap;
+  src: url('${FONT_BASE}merriweather-400.woff2') format('woff2'); }
+@font-face { font-family: 'Noto Serif'; font-style: normal; font-weight: 400; font-display: swap;
+  src: url('${FONT_BASE}noto-serif-400.woff2') format('woff2'); }
 `
 
 function readerCss(theme, prefs) {
   const t = THEMES[theme] || THEMES.dark
-  const font = FONTS[prefs?.font] || FONTS.iowan
+  const font = FONTS[prefs?.font] || FONTS.literata
   const size = prefs?.size ?? 19
   const lh = prefs?.lineHeight ?? 1.7
   return FONT_FACES + `
