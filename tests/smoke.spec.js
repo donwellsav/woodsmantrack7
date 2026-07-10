@@ -82,6 +82,9 @@ test.describe('reader lifecycle', () => {
     await expect(byline).toHaveText('by Don Wells')
     const [titleBox, bylineBox] = await Promise.all([title.boundingBox(), byline.boundingBox()])
     expect(bylineBox.y).toBeGreaterThan(titleBox.y)
+
+    await page.setViewportSize({ width: 390, height: 844 })
+    await expect(page.locator('header.topbar .mobile-chapter-title')).toHaveCount(0)
   })
 
   test('selecting The Door keeps its real text and player controls visible', async ({ page }) => {

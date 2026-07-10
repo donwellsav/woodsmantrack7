@@ -1259,7 +1259,6 @@ export default function App() {
           <span className="book-name">Woodsman: Track Seven</span>
           <span className="book-byline">by Don Wells</span>
         </h1>
-        {chapter?.title && <span className="mobile-chapter-title">{chapter.title}</span>}
         <span className="spacer" />
       </header>
 
