@@ -35,6 +35,11 @@ test('loadPrefs migrates system-dependent fonts to bundled replacements', () => 
   }
 })
 
+test('loadPrefs defaults to bundled Noto Serif', () => {
+  store({})
+  assert.equal(loadPrefs().font, 'noto')
+})
+
 test('loadPrefs accepts playback rates from 0.75x through 2x', () => {
   for (const playbackRate of [0.75, 1, 1.5, 2]) {
     store({ playbackRate })

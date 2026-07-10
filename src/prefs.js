@@ -51,7 +51,7 @@ export function loadPrefs() {
     const p = JSON.parse(localStorage.getItem('woodsman-prefs-v1') || '{}')
     const font = LEGACY_FONTS[p.font] || p.font
     return {
-      font: FONTS[font] ? font : 'literata',
+      font: FONTS[font] ? font : 'noto',
       size: typeof p.size === 'number' && p.size >= 12 && p.size <= 40 ? p.size : 19,
       flow: FLOW_OPTS.some(({ id }) => id === p.flow) ? p.flow : 'scrolled',
       lineHeight: typeof p.lineHeight === 'number' && p.lineHeight >= 1.3 && p.lineHeight <= 2.2 ? p.lineHeight : 1.7,
@@ -59,6 +59,6 @@ export function loadPrefs() {
       playbackRate: typeof p.playbackRate === 'number' && p.playbackRate >= 0.75 && p.playbackRate <= 2 ? p.playbackRate : 1,
     }
   } catch {
-    return { font: 'literata', size: 19, flow: 'scrolled', lineHeight: 1.7, clickToSeek: false, playbackRate: 1 }
+    return { font: 'noto', size: 19, flow: 'scrolled', lineHeight: 1.7, clickToSeek: false, playbackRate: 1 }
   }
 }

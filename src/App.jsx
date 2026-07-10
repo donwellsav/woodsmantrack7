@@ -80,7 +80,7 @@ const FONT_FACES = `
 
 function readerCss(theme, prefs) {
   const t = THEMES[theme] || THEMES.dark
-  const font = FONTS[prefs?.font] || FONTS.literata
+  const font = FONTS[prefs?.font] || FONTS.noto
   const size = prefs?.size ?? 19
   const lh = prefs?.lineHeight ?? 1.7
   return FONT_FACES + `
