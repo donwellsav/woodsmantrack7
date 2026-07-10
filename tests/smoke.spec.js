@@ -205,18 +205,21 @@ test.describe('preferences', () => {
     await expect.poll(() => readerIsReady(page)).toBe(true)
     await openSettings(page)
     const settings = page.getByRole('region', { name: 'Reading settings' })
-    for (const family of ['Lexend', 'Atkinson Hyperlegible', 'OpenDyslexic']) {
+    for (const family of [
+      'Literata', 'Lexend', 'Atkinson Hyperlegible',
+      'OpenDyslexic', 'Merriweather', 'Noto Serif',
+    ]) {
       await expect.poll(() => page.evaluate(async name =>
         (await document.fonts.load(`16px "${name}"`)).length, family)).toBeGreaterThan(0)
     }
 
     const selections = [
-      ['Iowan Old Style', 'Iowan Old Style'],
+      ['Literata', 'Literata'],
       ['Lexend', 'Lexend'],
       ['Atkinson Hyperlegible', 'Atkinson Hyperlegible'],
       ['OpenDyslexic', 'OpenDyslexic'],
-      ['Georgia', 'Georgia'],
-      ['System serif', 'Times New Roman'],
+      ['Merriweather', 'Merriweather'],
+      ['Noto Serif', 'Noto Serif'],
     ]
     const pickerFamilies = await settings.locator('.font-item').evaluateAll(buttons =>
       buttons.map(button => getComputedStyle(button).fontFamily))

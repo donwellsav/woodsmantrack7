@@ -26,6 +26,15 @@ test('loadPrefs retires persisted Page flow to Scroll', () => {
   assert.equal(loadPrefs().flow, 'scrolled')
 })
 
+test('loadPrefs migrates system-dependent fonts to bundled replacements', () => {
+  for (const [font, replacement] of Object.entries({
+    iowan: 'literata', georgia: 'merriweather', serif: 'noto',
+  })) {
+    store({ font })
+    assert.equal(loadPrefs().font, replacement)
+  }
+})
+
 test('loadPrefs accepts playback rates from 0.75x through 2x', () => {
   for (const playbackRate of [0.75, 1, 1.5, 2]) {
     store({ playbackRate })

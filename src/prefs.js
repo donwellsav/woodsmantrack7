@@ -5,37 +5,39 @@
 // SettingsPanel.jsx imports FONTS for the font picker.
 
 export const FONTS = {
-  iowan: {
-    label: 'Iowan Old Style',
-    css: '"Iowan Old Style", "Palatino Linotype", Palatino, "Hoefler Text", Constantia, Georgia, serif',
-    note: 'Classic book serif',
+  literata: {
+    label: 'Literata',
+    css: '"Literata", serif',
+    note: 'Long-form screen serif',
   },
   lexend: {
     label: 'Lexend',
-    css: '"Lexend", "Iowan Old Style", Georgia, serif',
+    css: '"Lexend", sans-serif',
     note: 'Optimized for reading speed',
   },
   atkinson: {
     label: 'Atkinson Hyperlegible',
-    css: '"Atkinson Hyperlegible", Verdana, sans-serif',
+    css: '"Atkinson Hyperlegible", sans-serif',
     note: 'High-legibility (Braille Institute)',
   },
   opendyslexic: {
     label: 'OpenDyslexic',
-    css: '"OpenDyslexic", "Iowan Old Style", serif',
+    css: '"OpenDyslexic", serif',
     note: 'Dyslexia-friendly',
   },
-  georgia: {
-    label: 'Georgia',
-    css: 'Georgia, "Times New Roman", serif',
-    note: 'Friendly system serif',
+  merriweather: {
+    label: 'Merriweather',
+    css: '"Merriweather", serif',
+    note: 'Friendly screen serif',
   },
-  serif: {
-    label: 'System serif',
-    css: '"Times New Roman", Times, serif',
-    note: 'Native only',
+  noto: {
+    label: 'Noto Serif',
+    css: '"Noto Serif", serif',
+    note: 'Neutral multilingual serif',
   },
 }
+
+const LEGACY_FONTS = { iowan: 'literata', georgia: 'merriweather', serif: 'noto' }
 
 export const FLOW_OPTS = [
   { id: 'scrolled', label: 'Scroll', note: 'Continuous, smooth' },
@@ -47,8 +49,9 @@ export const FLOW_OPTS = [
 export function loadPrefs() {
   try {
     const p = JSON.parse(localStorage.getItem('woodsman-prefs-v1') || '{}')
+    const font = LEGACY_FONTS[p.font] || p.font
     return {
-      font: FONTS[p.font] ? p.font : 'iowan',
+      font: FONTS[font] ? font : 'literata',
       size: typeof p.size === 'number' && p.size >= 12 && p.size <= 40 ? p.size : 19,
       flow: FLOW_OPTS.some(({ id }) => id === p.flow) ? p.flow : 'scrolled',
       lineHeight: typeof p.lineHeight === 'number' && p.lineHeight >= 1.3 && p.lineHeight <= 2.2 ? p.lineHeight : 1.7,
@@ -56,6 +59,6 @@ export function loadPrefs() {
       playbackRate: typeof p.playbackRate === 'number' && p.playbackRate >= 0.75 && p.playbackRate <= 2 ? p.playbackRate : 1,
     }
   } catch {
-    return { font: 'iowan', size: 19, flow: 'scrolled', lineHeight: 1.7, clickToSeek: false, playbackRate: 1 }
+    return { font: 'literata', size: 19, flow: 'scrolled', lineHeight: 1.7, clickToSeek: false, playbackRate: 1 }
   }
 }
