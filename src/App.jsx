@@ -1392,7 +1392,11 @@ export default function App() {
       </header>
 
       <div className="main">
-        <aside className={`sidebar ${sidebarOpen ? '' : 'closed'}`}>
+        <aside
+          className={`sidebar ${sidebarOpen ? '' : 'closed'}`}
+          inert={sidebarOpen ? undefined : ''}
+          aria-hidden={sidebarOpen ? undefined : 'true'}
+        >
           <div className="sidebar-header">
             <h2 id="chapters-heading" className="sidebar-heading">{showSettings ? 'Settings' : 'Chapters'}</h2>
           </div>

@@ -22,8 +22,8 @@ function makeSilentWav(seconds = 60) {
   return wav
 }
 
-async function routeGeneratedAudio(page) {
-  const wav = makeSilentWav()
+async function routeGeneratedAudio(page, seconds = 60) {
+  const wav = makeSilentWav(seconds)
   await page.route('http://localhost:4173/audio/**', route => {
     const range = /bytes=(\d+)-(\d*)/.exec(route.request().headers().range || '')
     const start = range ? Number(range[1]) : 0
@@ -156,6 +156,62 @@ test.describe('preferences', () => {
   })
 })
 
+test.describe('navigation accessibility', () => {
+  test.use({ viewport: { width: 390, height: 844 } })
+
+  test('mobile closed drawer is hidden and excluded from focus', async ({ page }) => {
+    await page.goto('/')
+
+    const drawer = page.locator('aside.sidebar')
+    await expect(drawer).toHaveClass(/\bclosed\b/)
+    await expect(drawer).toHaveAttribute('inert', '')
+    await expect(drawer).toHaveAttribute('aria-hidden', 'true')
+
+    const door = drawer.locator('button.chapter-item').filter({ hasText: 'The Door' })
+    await door.evaluate(button => button.focus())
+    expect(await drawer.evaluate(aside => aside.contains(document.activeElement))).toBe(false)
+  })
+})
+
+test.describe('paginated reading', () => {
+  test('Page mode advances when audio crosses the current page boundary', async ({ page }) => {
+    await routeGeneratedAudio(page, 1200)
+    await page.goto('/')
+    await expect.poll(() => readerIsReady(page)).toBe(true)
+    await page.getByRole('button', { name: /^The Door/ }).click()
+    await expect.poll(() => renderedReaderText(page)).toContain(FIRST_CHAPTER_TEXT)
+
+    await openSettings(page)
+    await page.getByRole('button', { name: 'Page' }).click()
+    await expect.poll(() => rendererFlow(page)).toBe('paginated')
+
+    const pastChapterBoundary = await page.evaluate(async () => {
+      const { words } = await fetch('/timings/ch002.json').then(response => response.json())
+      return words.at(-1).end + 0.01
+    })
+    await expect.poll(() => page.locator('audio').evaluate(audio => audio.duration))
+      .toBeGreaterThan(pastChapterBoundary)
+
+    await page.locator('foliate-view').evaluate(view => {
+      const renderer = view.renderer
+      const next = renderer.next
+      window.__pageTurnCalls = 0
+      renderer.next = function (...args) {
+        window.__pageTurnCalls += 1
+        return next.apply(this, args)
+      }
+    })
+
+    await expect.poll(async () => {
+      return page.locator('audio').evaluate((audio, target) => {
+        audio.currentTime = target
+        audio.dispatchEvent(new Event('timeupdate'))
+        return window.__pageTurnCalls
+      }, pastChapterBoundary)
+    }).toBeGreaterThan(0)
+  })
+})
+
 test.describe('reading progress', () => {
   test('reading progress stays legible when switching chapters before metadata', async ({ page }) => {
     await routeGeneratedAudio(page)
@@ -198,6 +254,23 @@ test.describe('reading progress', () => {
 test.describe('playback controls', () => {
   test.beforeEach(async ({ page }) => {
     await routeGeneratedAudio(page)
+  })
+
+  test('selecting The Door loads and plays its generated chapter audio', async ({ page }) => {
+    await page.goto('/')
+
+    const doorRequest = page.waitForRequest(request =>
+      decodeURIComponent(new URL(request.url()).pathname) === '/audio/02_The Door.mp3')
+    await page.getByRole('button', { name: /^The Door/ }).click()
+    expect(decodeURIComponent(new URL((await doorRequest).url()).pathname))
+      .toBe('/audio/02_The Door.mp3')
+
+    await expect.poll(() => page.locator('audio').evaluate(audio => audio.readyState))
+      .toBeGreaterThanOrEqual(1)
+    await page.getByRole('button', { name: 'Play' }).click()
+    await expect(page.getByRole('button', { name: 'Pause' })).toBeVisible()
+    await expect.poll(() => page.locator('audio').evaluate(audio => audio.currentTime))
+      .toBeGreaterThan(0.1)
   })
 
   test('playback controls persist speed and apply it immediately and on metadata', async ({ page }) => {
