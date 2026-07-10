@@ -192,11 +192,15 @@ test.describe('playback controls', () => {
 
     const back = page.getByRole('button', { name: 'Back 15 seconds' })
     const forward = page.getByRole('button', { name: 'Forward 15 seconds' })
+    const previous = page.getByRole('button', { name: 'Previous chapter' })
+    const play = page.getByRole('button', { name: 'Play' })
+    const next = page.getByRole('button', { name: 'Next chapter' })
+    const controls = [previous, back, play, forward, next]
     await expect(back).toBeVisible()
     await expect(forward).toBeVisible()
-    await expect(page.getByRole('button', { name: 'Previous chapter' })).toBeVisible()
-    await expect(page.getByRole('button', { name: 'Play' })).toBeVisible()
-    await expect(page.getByRole('button', { name: 'Next chapter' })).toBeVisible()
+    await expect(previous).toBeVisible()
+    await expect(play).toBeVisible()
+    await expect(next).toBeVisible()
 
     await page.locator('audio').evaluate(audio => { audio.currentTime = 30 })
     await expect.poll(() => page.locator('audio').evaluate(audio => audio.currentTime)).toBe(30)
@@ -206,8 +210,19 @@ test.describe('playback controls', () => {
     await expect.poll(() => page.locator('audio').evaluate(audio => audio.currentTime)).toBe(30)
 
     await page.setViewportSize({ width: 320, height: 640 })
-    await expect(back).toBeVisible()
-    await expect(forward).toBeVisible()
+    for (const control of controls) await expect(control).toBeVisible()
+    const boxes = await Promise.all(controls.map(control => control.boundingBox()))
+    const viewport = page.viewportSize()
+    for (const box of boxes) {
+      expect(box).not.toBeNull()
+      expect(box.x).toBeGreaterThanOrEqual(0)
+      expect(box.y).toBeGreaterThanOrEqual(0)
+      expect(box.x + box.width).toBeLessThanOrEqual(viewport.width)
+      expect(box.y + box.height).toBeLessThanOrEqual(viewport.height)
+    }
+    for (let i = 1; i < boxes.length; i += 1) {
+      expect(boxes[i - 1].x + boxes[i - 1].width).toBeLessThanOrEqual(boxes[i].x)
+    }
     await expect.poll(() => page.evaluate(() =>
       document.documentElement.scrollWidth <= window.innerWidth)).toBe(true)
   })
