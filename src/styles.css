@@ -98,7 +98,7 @@ body {
 
 /* topbar chapter navigation */
 .topbar {
-  display: flex; align-items: center; gap: 12px;
+  display: flex; align-items: center; gap: 6px;
   padding: env(safe-area-inset-top) 16px 0 16px;
   height: auto; min-height: calc(52px + env(safe-area-inset-top));
   background: var(--bar-bg); border-bottom: 1px solid var(--border);
@@ -106,14 +106,13 @@ body {
 }
 .book-title {
   display: flex; flex-direction: column; align-items: flex-start;
-  font-size: 0.95rem; font-weight: 600; letter-spacing: 0.2px;
+  font-size: 0.85rem; line-height: 1.15; font-weight: 600; letter-spacing: 0.2px;
   color: var(--accent);
-  text-shadow: 0 0 8px var(--glow);
   font-family: "Iowan Old Style", "Palatino Linotype", Palatino, Georgia, serif;
   flex-shrink: 1; min-width: 0;
 }
 .book-name, .book-byline { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; max-width: 100%; }
-.book-byline { font-size: 0.78rem; font-weight: 400; color: var(--bar-fg-dim); text-shadow: none; }
+.book-byline { font-size: 0.68rem; line-height: 1.15; font-weight: 400; color: var(--bar-fg-dim); }
 .spacer { flex: 1; }
 
 .icon-btn {
