@@ -195,11 +195,19 @@ test.describe('paginated reading', () => {
     await expect.poll(() => page.locator('audio').evaluate(audio => audio.duration))
       .toBeGreaterThan(midChapterTime)
 
-    await page.locator('audio').evaluate(async (audio, target) => {
+    await page.locator('foliate-view').evaluate(view => {
+      for (const { doc } of view.renderer?.getContents?.() ?? []) {
+        doc?.defaultView?.CSS?.highlights?.delete('sentence-hl')
+      }
+    })
+    await expect.poll(() => page.locator('audio').evaluate(async (audio, target) => {
       audio.currentTime = target
       audio.dispatchEvent(new Event('timeupdate'))
       await new Promise(resolve => requestAnimationFrame(() => requestAnimationFrame(resolve)))
-    }, midChapterTime)
+      const view = audio.ownerDocument.querySelector('foliate-view')
+      return (view?.renderer?.getContents?.() ?? []).some(({ doc }) =>
+        doc?.defaultView?.CSS?.highlights?.has('sentence-hl'))
+    }, midChapterTime)).toBe(true)
 
     await page.getByRole('button', { name: 'Page' }).click()
     await expect.poll(() => rendererFlow(page)).toBe('paginated')
