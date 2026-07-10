@@ -40,8 +40,9 @@ export default function SettingsPanel({ theme, setTheme, prefs, setPrefs }) {
                 onClick={() => setPrefs(p => ({ ...p, font: id }))}
                 aria-pressed={prefs.font === id}
                 title={f.note}
+                style={{ fontFamily: f.css }}
               >
-                <span className="font-sample" style={{ fontFamily: f.css }}>Aa</span>
+                <span className="font-sample">Aa</span>
                 <span className="font-name">{f.label}</span>
                 <span className="font-note">{f.note}</span>
               </button>
